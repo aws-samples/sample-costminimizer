@@ -84,7 +84,7 @@ CostMinimizer -r --ce --cur    # Generates AI recommendations based on report da
 
 5. Ask genAI a question about the cost report:
 CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, 
-what is the cost of my AWS service for the year 2024 for the account nammed slepetre@amazon.com ?" -f "C:\Users\slepetre\cow\125538328000-2025-04-04-09-46\CostMinimizer.xlsx"
+what is the cost of my AWS service for the year 2024 for the account nammed slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000-2025-04-04-09-46\CostMinimizer.xlsx"
 ```
 
 ### Operation Modes
@@ -128,7 +128,7 @@ costminimizer --cur --cur --cur-db customer_cur_data --cur-table cur_00006582261
 2. Ask questions about cost data:
 ```bash
 # Ask a specific question about costs
-CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account named slepetre@amazon.com ?" -f "C:\Users\slepetre\cow\125538328000-2025-04-03-11-08\CostMinimizer.xlsx"
+CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account named slepe000@amazon.com ?" -f "C:\Users\slepetre\cow\000538328000-2025-04-03-11-08\CostMinimizer.xlsx"
 ```
 
 
