@@ -46,33 +46,45 @@ The tool combines data from multiple AWS cost management services to provide a h
   - AWS Bedrock (for AI-powered analysis)
 
 
-### Installation
+### Installation and configuration
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone git@github.com:aws-samples/sample-costminimizer.git
 cd CostMinimizer
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Setup and install python tooling
+python setup.py develop
 
 # Configure the tool
 CostMinimizer --configure
 ```
 
 ### Quick Start
-1. Configure AWS credentials:
 ```bash
-CostMinimizer --configure
-```
 
-2. Run a basic cost analysis:
-```bash
-CostMinimizer -b -t -c  # Runs Cost Explorer, Trusted Advisor, and Compute Optimizer reports
-```
+1. Verify your AWS credentials:
+aws sts get-caller-identity        # CostMinimizer is using the AWS credentials defined in environment variables or .aws/
 
-3. Generate AI recommendations:
-```bash
-CostMinimizer -r -f report.xlsx  # Generates AI recommendations based on report data
+(optional: you can automaticaly register the existing credentials as the default admin one of the tooling:
+costminimizer --configure --auto-update-conf
+Therefore reports will be saved into C:\Users\$USERNAME$\cow\$ACCOUNTID_CREDENTIALS$-2025-04-04-09-46\
+)
+
+2. List all options for the tooling:
+CostMinimizer --help
+
+3. Run a basic cost analysis:
+CostMinimizer --ce --ta --co --cur # Runs Cost Explorer, Trusted Advisor, Compute Optimizer reports, and CUR Cost and Usage Reports
+
+4. Generate AI recommendations:
+CostMinimizer -r --ce --cur    # Generates AI recommendations based on report data
+
+5. Ask genAI a question about the cost report:
+CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, 
+what is the cost of my AWS service for the year 2024 for the account nammed slepetre@amazon.com ?" -f "C:\Users\slepetre\cow\125538328000-2025-04-04-09-46\CostMinimizer.xlsx"
 ```
 
 ### Operation Modes
@@ -80,7 +92,7 @@ CostMinimizer -r -f report.xlsx  # Generates AI recommendations based on report 
 1. CLI Mode (Default):
    ```bash
    # Run in CLI mode with interactive options
-   CostMinimizer --mode cli
+   CostMinimizer --mode cli   # --mode cli is optional, default mode is this one, there is no need to specify --mode cli
    ```
 
 2. Module Integration Mode:
@@ -94,19 +106,29 @@ CostMinimizer -r -f report.xlsx  # Generates AI recommendations based on report 
 1. Generate specific reports:
 ```bash
 # Generate Cost Explorer reports only
-CostMinimizer -b
+CostMinimizer --ce
 
 # Generate Trusted Advisor reports only
-CostMinimizer -t
+CostMinimizer --ta
 
-# Generate all reports with email notification
-CostMinimizer -b -t -c -s user@example.com
+# Generate CUR Cost and Usage Reports only
+CostMinimizer --cur
+
+# Generate Compute Optimizer Reports only
+CostMinimizer --co
+
+# Generate all reports and send the result by email using -s option
+CostMinimizer --ce --ta --co --cur -s user@example.com
+
+# Generate CUR graviton reports for a specific CUR database and table (here AWS account 000065822619 for 2025 02)
+costminimizer --cur --cur --cur-db customer_cur_data --cur-table cur_000065822619_202502 --checks cur_gravitoneccsavings cur_gravitonrdssavings cur_lambdaarmsavings --region us-east-1
+
 ```
 
 2. Ask questions about cost data:
 ```bash
 # Ask a specific question about costs
-CostMinimizer -q "What are my top 3 AWS services by cost?" -f cost_report.xlsx
+CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account named slepetre@amazon.com ?" -f "C:\Users\slepetre\cow\125538328000-2025-04-03-11-08\CostMinimizer.xlsx"
 ```
 
 
@@ -116,12 +138,15 @@ CostMinimizer -q "What are my top 3 AWS services by cost?" -f cost_report.xlsx
   ```bash
   # Verify AWS credentials
   aws configure list
+  aws sts get-caller-identity        # CostMinimizer is using the AWS credentials defined in environment variables or .aws/
+
   # Reconfigure CostMinimizer
-  CostMinimizer --configure
+  CostMinimizer --configure --auto-update-conf    # Auto update the values of the configuration of the tooling
+                                                  # Retreives the credentials from the environment variables, and configure tooling with these values
   ```
 
 2. Report Generation Failures
-- Check log file at `~/.CostMinimizer/CostMinimizer_tooling.log`
+- Check log file at `~/cow/CostMinimizer.log`
 - Verify required AWS permissions
 - Ensure Cost Explorer API is enabled
 
