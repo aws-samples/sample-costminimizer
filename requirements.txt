@@ -1,0 +1,26 @@
+pyathena
+botocore
+boto3
+simple-term-menu>=1.6.1; sys_platform!="win32"
+bottle
+backoff
+click
+openpyxl
+pandas
+pytest
+pytest-cov
+pytest-mock
+mock
+requests
+rich
+sqlparse
+xlsxwriter
+pick
+tabulate
+PyYAML
+pycryptodome
+jsonpickle
+python-pptx
+python-dateutil
+setuptools
+colorama

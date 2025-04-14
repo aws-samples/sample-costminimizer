@@ -1,0 +1,9 @@
+aws:
+  profile: 'default' # aws cli profile name for your aws account number
+  account: '123456789012' # your aws account number
+  secrets_manager_secret: 'tooling' # Name of secrets manager secret (in your aws acct) to use for encryption, default = cow
+output:
+  output_folder: '/Users/$username/Desktop/tooling' #path to output folder, if None default will be used
+report_request:
+  report_request_file: None #path to report request file, if None default will be used
+

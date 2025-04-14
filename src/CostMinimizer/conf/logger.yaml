@@ -1,0 +1,28 @@
+version: 1
+formatters:
+  simple:
+    format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  verbose:
+    format: '%(asctime)s - %(process)d  - %(name)s - %(levelname)s - %(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: DEBUG
+    formatter: verbose
+    stream: ext://sys.stdout
+  info_file_handler:
+    class: logging.handlers.RotatingFileHandler
+    level: INFO
+    formatter: simple
+    filename: ./cow/CostMinimizer_tooling.log
+    maxBytes: 10485760 # 10MB
+    backupCount: 20
+    encoding: utf8
+loggers:
+  cowLogger:
+    level: INFO
+    handlers: [info_file_handler]
+    propagate: no
+root:
+  level: INFO
+  handlers: [info_file_handler]
