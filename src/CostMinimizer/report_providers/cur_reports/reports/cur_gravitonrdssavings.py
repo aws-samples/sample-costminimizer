@@ -9,6 +9,7 @@ import sqlparse
 import pandas as pd
 import time
 import sqlparse
+from rich.progress import track
 
 class CurGravitonrdssavings(CurBase):
     """Analysis of potential cost savings from migrating RDS instances to Graviton."""
@@ -65,18 +66,18 @@ class CurGravitonrdssavings(CurBase):
 
     def get_required_columns(self) -> list:
         return [
-            'line_item_usage_account_id',
+            'usage_account_id',
             'product_instance_type',
             'graviton_instance_type',
             'product_database_engine',
             'product_deployment_option',
-            'line_item_availability_zone',
+            'availability_zone',
             'product_tenancy',
             'product_region',
             'Current Instance Unit Cost',
             'Graviton Instance Unit Cost',
             'current_cost',
-            'Amortized Cost',
+            'Amortized_cost',
             'potential_savings',
             'savings'
         ]
@@ -109,7 +110,7 @@ class CurGravitonrdssavings(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows: {str(e)}")
+            print(f"Error in counting rows in report_result: {str(e)}")
             return 0
 
     def get_estimated_savings(self, sum=True) -> float:
@@ -204,10 +205,9 @@ class CurGravitonrdssavings(CurBase):
             return results
         else:
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
-            self.appConfig.console.print(l_msg)
             raise Exception(l_msg)
 
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         self.list_cols_currency = list_cols_currency
@@ -219,7 +219,9 @@ class CurGravitonrdssavings(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            self.appConfig.console.print(f"\n[red]Athena Query failed with state (verify Athena configuration): {e}")
+            l_msg = f"Athena Query failed with state (verify Athena configuration): {e}"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []
@@ -227,7 +229,11 @@ class CurGravitonrdssavings(CurBase):
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
-            for resource in response[1:]:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
                 current_cost = float(resource['Data'][7]['VarCharValue'])
                 region = 'us-east-1'
                 accountid = resource['Data'][0]['VarCharValue']
@@ -276,20 +282,21 @@ class CurGravitonrdssavings(CurBase):
                 savings = current_cost - (current_cost * ratio)
 
                 data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'],   # line_item_usage_account_id
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'],   # product_instance_type
-                    self.get_required_columns()[2]: graviton_equiv,                        # graviton_instance_type
-                    self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'],   # product_database_engine
-                    self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'],   # product_operating_system
-                    self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'],   # line_item_availability_zone
-                    self.get_required_columns()[6]: resource['Data'][5]['VarCharValue'],   # product_tenancy
-                    self.get_required_columns()[7]: resource['Data'][6]['VarCharValue'],   # product_region
-                    self.get_required_columns()[8]: value_current_unit_price,              # current_instance_unit_cost
-                    self.get_required_columns()[9]: value_graviton_unit_price,             # graviton_instance_unit_cost
-                    self.get_required_columns()[10]: current_cost,                         # current_cost
-                    self.get_required_columns()[11]: resource['Data'][7]['VarCharValue'],  # amortized_cost
-                    self.get_required_columns()[12]: savings,                              # potential_savings
-                    self.get_required_columns()[13]: (1-ratio)                             # ratio %
+                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',   # line_item_usage_account_id
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',   # product_instance_type
+                    self.get_required_columns()[2]: graviton_equiv,                                                                         # graviton_instance_type
+                    self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',   # product_database_engine
+                    self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',   # product_operating_system
+                    self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else '',   # line_item_availability_zone
+                    self.get_required_columns()[6]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else '',   # product_tenancy
+                    self.get_required_columns()[7]: resource['Data'][6]['VarCharValue'] if 'VarCharValue' in resource['Data'][6] else '',   # product_region
+                    self.get_required_columns()[8]: value_current_unit_price,                                                               # current_instance_unit_cost
+                    self.get_required_columns()[9]: value_graviton_unit_price,                                                              # graviton_instance_unit_cost
+                    self.get_required_columns()[10]: current_cost,                                                                           # current_cost
+                    self.get_required_columns()[12]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else 0.0, # amortized_cost
+                    self.get_required_columns()[12]: savings,                                                                               # potential_savings
+                    self.get_required_columns()[13]: (1-ratio)                                                                              # ration %
+
                 }
                 data_list.append(data_dict)
 
@@ -297,7 +304,7 @@ class CurGravitonrdssavings(CurBase):
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         """Generate SQL query for RDS Graviton migration analysis."""
         l_SQL = f"""WITH rds_usage AS (
 SELECT 
@@ -324,6 +331,7 @@ AND line_item_usage_type LIKE '%Instance%Usage%'
 AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage') 
 AND product_instance_type NOT LIKE '%.metal' 
 AND product_instance_type NOT LIKE 'db.%g.%' 
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
 product_instance_type, 
@@ -334,16 +342,16 @@ product_tenancy,
 product_region 
 ) 
 SELECT 
-account_id as "Account ID", 
-instance_type as "Instance Type", 
-db_engine as "DB Engine", 
-deployment_option AS "Deployment Option", 
-az AS "AZ", 
-tenancy as "Tenancy", 
-region as "Region", 
-CAST(current_cost as decimal(16,2)) as "Current Cost", 
-CAST(0 as decimal(16,2)) as "Amortized Cost", 
-CAST(0 as decimal(16,2)) as "USage Amount" 
+account_id as Account_ID_, 
+instance_type as Instance_Type, 
+db_engine as DB_Engine, 
+deployment_option AS Deployment_Option, 
+az AS AZ, 
+tenancy as Tenancy, 
+region as Region, 
+CAST(current_cost as decimal(16,2)) as Current_Cost, 
+CAST(0 as decimal(16,2)) as Amortized_Cost, 
+CAST(0 as decimal(16,2)) as USage_Amount 
 FROM 
 rds_usage 
 WHERE 

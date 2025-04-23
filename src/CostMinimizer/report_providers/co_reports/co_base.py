@@ -20,6 +20,7 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 import numpy as np
 import json
+from rich.progress import track
 
 # Required to load modules from vendored subfolder (for clean development env)
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "./vendored"))
@@ -364,7 +365,7 @@ class InstanceReport:
 
     def list_ebs_instances_prices(self, region_account: tuple, filters: List[Dict[str, Any]] = None, 
                     get_storage_pricing: bool = True, 
-                    get_instance_pricing: bool = True) -> List[Dict[str, Any]]:
+                    get_instance_pricing: bool = True, display = False, report_name = '') -> List[Dict[str, Any]]:
         if filters is None:
             filters = []
             
@@ -382,8 +383,12 @@ class InstanceReport:
             # Using standard boto3 EC2 API call
             response = ec2_client.describe_instances(Filters=aws_filters)
             instances_list = []
-            
-            for reservation in response.get('Reservations', []):
+
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for reservation in track(response.get('Reservations', []), description=display_msg):
                 for instance in reservation.get('Instances', []):
                     if instance['State']['Name'] in ['running', 'stopped']:
                         instance_info = {
@@ -484,7 +489,7 @@ class InstanceReport:
             return None, None
 
     # Combine both APIs to get recommendations and costs
-    def get_recommendations_with_costs( self, region_account: tuple, filters: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def get_recommendations_with_costs( self, region_account: tuple, filters: List[Dict[str, Any]] = None, display = True, report_name = '') -> List[Dict[str, Any]]:
 
         region, account_id = region_account
         co_client = boto3.client('compute-optimizer', region_name=region)
@@ -494,7 +499,11 @@ class InstanceReport:
 
             instances_list = []
 
-            for recommendation in recommendations['instanceRecommendations']:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for recommendation in track(recommendations['instanceRecommendations'], description=display_msg):
 
                 instance_id = recommendation['instanceArn'].split('/')[-1]
                 current_type = recommendation['currentInstanceType']

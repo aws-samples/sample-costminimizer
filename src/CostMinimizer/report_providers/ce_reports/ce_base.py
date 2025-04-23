@@ -20,6 +20,7 @@ from dateutil.relativedelta import relativedelta
 from abc import ABC
 from pyathena.pandas.result_set import AthenaPandasResultSet
 from ...report_providers.report_providers import ReportBase
+from rich.progress import track
 
 class CeBase(ReportBase, ABC):
     """Retrieves BillingInfo checks from CostExplorer API
@@ -258,7 +259,8 @@ class CeBase(ReportBase, ABC):
                     nextToken = False
                 
             rows = []
-            for i in results:
+            display_msg = f'[green]Running Cost & Usage Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+            for i in track(results, description=display_msg):
                 for v in i['RecommendationDetails']:
                     row = v['InstanceDetails'][list(v['InstanceDetails'].keys())[0]]
                     row['Recommended']=v['RecommendedNumberOfInstancesToPurchase']
@@ -407,7 +409,8 @@ class CeBase(ReportBase, ABC):
                     nextToken = False
         rows = []
         sort = ''
-        for v in results:
+        display_msg = f'[green]Running Cost & Usage Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+        for v in track(results, description=display_msg):
             row = {'date':v['TimePeriod']['Start']}
             sort = v['TimePeriod']['Start']
             for i in v['Groups']:

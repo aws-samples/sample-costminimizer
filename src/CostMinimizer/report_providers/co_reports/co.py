@@ -130,10 +130,10 @@ class CoReports(ReportProviderBase):
 
     def execute_report(self, report_object, display, cached=False):
 
-        def run_query(report_object):
+        def run_query(report_object, display = False, report_name = ''):
             try:
 
-                report_object.sql( self.client, region = self.regions, account = self.accounts)
+                report_object.sql( self.client, region = self.regions, account = self.accounts, display = False, report_name = '')
 
                 Name= self.long_name()
 
@@ -146,10 +146,10 @@ class CoReports(ReportProviderBase):
 
                 self.logger.info(f'Running Cost Optimizer query: {report_name} ')
             except Exception as e:
-                self.logger.info('Exception occured when during execution of CO query')
-                self.logger.info(e)
-                self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of CO query {e}')
-                exit()
+                self.logger.error('Exception occured when during execution of CO query')
+                self.logger.exception(e)
+                self.appConfig.console.print(f'\n[red]Exception occured when during execution of CO query >>> {e}')
+                sys.exit()
 
 
         report_name = report_object.name()
@@ -162,9 +162,8 @@ class CoReports(ReportProviderBase):
 
         else:
             if display:
-                for _ in track(range(1), description=display_msg):
-                    # execute report for all accounts/regions
-                    run_query(report_object)
+                # execute report for all accounts/regions
+                run_query(report_object, display, report_name)
             else:
                 run_query(report_object)
 

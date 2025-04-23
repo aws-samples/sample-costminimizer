@@ -120,7 +120,6 @@ class Authentication:
         try:
             command = "aws sts get-caller-identity"
             account_output = subprocess.run(shlex.split(command), capture_output=True)
-            raise
         except Exception as e:
             print(e)
             if self.config.mode == 'cli':

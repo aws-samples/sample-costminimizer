@@ -106,11 +106,11 @@ class CustomerParse:
         try:
             configuration_type = [key for key in self.customer_request[customer_name].keys() if key in self.accepted_config]
         except:
-            self.logger.exception(f'CustomerDoesNotExistException: Customer {customer_name} does not exist.')
+            self.logger.error(f'CustomerDoesNotExistException: Customer {customer_name} does not exist.')
             raise CustomerDoesNotExistException(f'Selected customer {customer_name} does not exist.')
             
         if len(configuration_type) == 0:
-            self.logger.exception(f'CustomerReportConfigurationErrorException {customer_name} misconfigured.  Unable to find payer or accounts information.')
+            self.logger.error(f'CustomerReportConfigurationErrorException {customer_name} misconfigured.  Unable to find payer or accounts information.')
             raise CustomerReportConfigurationErrorException(f'Customer {customer_name} does not have payer or accounts section configured.')
 
         #accounts is the default if it exists
@@ -120,7 +120,7 @@ class CustomerParse:
         if 'payer' in configuration_type:
             return 'payer'
         else:
-            self.logger.exception(f'CustomerReportConfigurationErrorException {customer_name} misconfigured. Unable to find payer or accounts information.')
+            self.logger.error(f'CustomerReportConfigurationErrorException {customer_name} misconfigured. Unable to find payer or accounts information.')
             raise CustomerReportConfigurationErrorException(f'Customer {customer_name} does not have payer or accounts section configured.')
         
 
@@ -156,7 +156,7 @@ class CustomerParse:
         if 'payer' in customer_data:    
             return [customer_data['payer']]
         else:
-            self.logger.exception(f'CustomerReportConfigurationErrorException {customer_name}: Unable to find payer information.')
+            self.logger.error(f'CustomerReportConfigurationErrorException {customer_name}: Unable to find payer information.')
             raise CustomerReportConfigurationErrorException(f'Customer {customer_name} Unable to find payer information.')
         
 
@@ -245,7 +245,7 @@ class ToolingReportRequest:
             defined in the file.
             '''
             if not self.validate_customer_exists_in_report_request_file(self.report_request, self.selected_customer):
-                self.logger.exception(f'Using {self.report_request_input_file.resolve()} report_request file, customer {self.selected_customer} must be defined in the file.')
+                self.logger.error(f'Using {self.report_request_input_file.resolve()} report_request file, customer {self.selected_customer} must be defined in the file.')
                 raise CustomerDoesNotExistException(f'Using {self.report_request_input_file.resolve()} report_request file, customer {self.selected_customer} must be defined in the file.')
 
         '''
@@ -271,7 +271,7 @@ class ToolingReportRequest:
                 try:
                     report_request = import_yaml_file(self.report_request_input_file)
                 except FileNotFoundError as e:
-                    self.logger.exception(f'FileNotFoundError for {self.report_request_input_file}')
+                    self.logger.error(f'FileNotFoundError for {self.report_request_input_file}')
                     raise ReportRequestFileNotFoundException(f"{self.report_request_input_file} is not Found.")
         elif self.appConfig.mode == 'module':
             pass
@@ -287,14 +287,14 @@ class ToolingReportRequest:
         self.appConfig.database.email_address=customer_from_database[0].EmailAddress
         #customer names in the database should be unique
         if len(customer_from_database) != 1:
-            self.logger.exception(f'Requested customer {self.selected_customer} does not exist.')
+            self.logger.error(f'Requested customer {self.selected_customer} does not exist.')
             raise CustomerDoesNotExistException(f'Requested customer {self.selected_customer} does not exist.')
 
         #get customers payer number from database
         payer = self.appConfig.database.get_customer_payers(self.selected_customer.strip())
         #each customer should have a payer 
         if len(payer) == 0:
-            self.logger.exception(f'No payers fround for customer: {self.selected_customer}.')
+            self.logger.error(f'No payers fround for customer: {self.selected_customer}.')
             raise CustomerDoesNotExistException(f'No payers fround for customer: {self.selected_customer}.')
 
         payer = payer[0] #We currently only take the first payer returned TODO need to handle multiple payers
@@ -323,11 +323,11 @@ class ToolingReportRequest:
         '''assert that customers and reports sections exist and have data'''
         for section in sections:
             if section not in self.report_request.keys():
-                self.logger.exception(f'ReportRequestMissingCustomerConfigurationException section not found {section}')
+                self.logger.error(f'ReportRequestMissingCustomerConfigurationException section not found {section}')
                 raise ReportRequestMissingCustomerConfigurationException(f'Report file missing {section} section.')
             
             if self.report_request[section] is None:
-                self.logger.exception(f'ReportRequestMissingCustomerConfigurationException section missing {section}')
+                self.logger.error(f'ReportRequestMissingCustomerConfigurationException section missing {section}')
                 raise ReportRequestMissingCustomerConfigurationException(f'Report section {section} is misconfigured.')
     
     def validate_customer_exists_in_report_request_file(self, report_request, selected_customer) -> bool:

@@ -4,10 +4,12 @@
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
 
-from ..cur_base import CurBase
+from ..cur_base import CurBase, AWSSnapshots
 import pandas as pd
 import time
 import sqlparse
+from rich.progress import track
+
 
 class CurAgedebssnapshotscost(CurBase):
     """
@@ -16,6 +18,12 @@ class CurAgedebssnapshotscost(CurBase):
     This class extends CurBase and provides methods for analyzing Cost and Usage Report (CUR) data
     to identify EBS snapshots that are aged and potentially leading to unnecessary costs.
     """
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self._savings = 0.0
+        self._recommendations = []
+
+        self.snapshots = AWSSnapshots(app)
 
     def name(self):
         return "cur_agedebssnapshotscost"
@@ -80,7 +88,7 @@ class CurAgedebssnapshotscost(CurBase):
 
             total_savings = 0.0
             for _, row in query_results.iterrows():
-                savings = float(row['cost'])
+                savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
                 total_savings += savings
 
             self._savings = total_savings
@@ -126,7 +134,7 @@ class CurAgedebssnapshotscost(CurBase):
             l_msg = f"{response['QueryExecution']['Status']['StateChangeReason']}"
             raise Exception(l_msg)
 
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         self.list_cols_currency = list_cols_currency
@@ -137,8 +145,9 @@ class CurAgedebssnapshotscost(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            l_msg = f"\n[red]Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
-            self.appConfig.console.print(l_msg)
+            l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []
@@ -146,12 +155,47 @@ class CurAgedebssnapshotscost(CurBase):
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
-            for resource in response[1:]:
-                data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'],
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'],
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue']
-                }
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
+                # try catch block to get the snapshot info using self.snapshot
+                try:
+                    snapshot_id = resource['Data'][0]['VarCharValue'].split('snapshot/')[1] if 'snapshot/' in resource['Data'][0]['VarCharValue'] else ''
+                    l_region = resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else ''
+
+                    snapshot_size_info = self.snapshots.get_snapshot_info(snapshot_id, l_region)
+                    if snapshot_size_info is None:
+                        self.appConfig.logger.warning(f"Could not get detailed block information for snapshot {snapshot_id} in region {l_region}")
+                        continue
+                    volume_size_gib = snapshot_size_info.get('volume_size_gib', 0)
+                    volume_size_bytes = snapshot_size_info.get('volume_size_bytes', 0)
+                    start_time = snapshot_size_info.get('start_time', '')
+                    description = snapshot_size_info.get('description', '')
+                    state = snapshot_size_info.get('state', '')
+                    actual_data_size_gib = snapshot_size_info.get('actual_data_size_gib', 0)
+                
+                    data_dict = {
+                        self.get_required_columns_extended()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
+                        self.get_required_columns_extended()[1]: l_region,
+                        self.get_required_columns_extended()[2]: snapshot_id,
+                        self.get_required_columns_extended()[3]: volume_size_gib,
+                        self.get_required_columns_extended()[4]: volume_size_bytes,
+                        self.get_required_columns_extended()[5]: start_time,
+                        self.get_required_columns_extended()[6]: description,
+                        self.get_required_columns_extended()[7]: state,
+                        self.get_required_columns_extended()[8]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0,
+                        self.get_required_columns_extended()[9]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0,
+                        self.get_required_columns_extended()[10]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0
+                    }
+                except Exception as e:
+                    data_dict = {
+                        self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
+                        self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
+                        self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0,
+                        self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0
+                    }
                 data_list.append(data_dict)
 
             df = pd.DataFrame(data_list)
@@ -160,18 +204,37 @@ class CurAgedebssnapshotscost(CurBase):
 
     def get_required_columns(self) -> list:
         return [
-                    'line_item_resource_id',
+                    'resource_id',
+                    'region',
                     'usage',
                     'cost'
+                    #self.ESTIMATED_SAVINGS_CAPTION
             ]
 
+    def get_required_columns_extended(self) -> list:
+        return [
+                    'resource_id',
+                    'region',
+                    'snapshot_id',
+                    'volume_size_gib',
+                    'volume_size_bytes',
+                    'start_time',
+                    'description',
+                    'state',
+                    'usage',
+                    'cost',
+                    self.ESTIMATED_SAVINGS_CAPTION
+            ]
+        
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         # This method needs to be implemented with the specific SQL query for aged EBS snapshots cost
-        l_SQL = f"""SELECT DISTINCT 
-line_item_resource_id, 
+        # line_item_usage_start_date BETWEEN DATE_ADD('month', -1, max_date) AND max_date
+        l_SQL = f"""SELECT 
+DISTINCT line_item_resource_id, 
+product_location as region,
 SUM(line_item_usage_amount) as usage, 
 SUM(line_item_unblended_cost) as cost 
 FROM {fqdb_name} 
@@ -179,8 +242,8 @@ WHERE
 {account_id} 
 line_item_line_item_type = 'Usage' 
 AND line_item_usage_type LIKE '%EBS:SnapshotUsage' 
-AND line_item_usage_start_date >= now() - INTERVAL '1' month 
-GROUP BY 1;"""
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
+GROUP BY 1, 2;"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
         # for each unique combination of account, resource, and usage type. This gives us the
@@ -201,7 +264,7 @@ GROUP BY 1;"""
 
     # return chart type 'chart' or 'pivot' or '' of the excel graph
     def set_chart_type_of_excel(self):
-        self.chart_type_of_excel = ''
+        self.chart_type_of_excel = 'pivot'
         return self.chart_type_of_excel
 
     # return range definition of the categories in the excel graph
@@ -216,7 +279,7 @@ GROUP BY 1;"""
 
     # return list of columns values in the excel graph
     def get_list_cols_currency(self):
-        return [2]
+        return [4]
 
     # return column to group by in the excel graph
     def get_group_by(self):

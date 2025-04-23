@@ -169,7 +169,7 @@ class ReportProviderBase(ABC):
             self.run_additional_logic_for_provider(report_object, additional_input_data)
             
             self.logger.info(f'{report_name}: Requested in {self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type} mode.')
-            self.logger.info(f'{report_name}: Running against {len(self.accounts)} accounts and {len(self.regions)} regions.')
+            self.logger.info(f'{report_name}: Running against account #{self.accounts} and region {self.regions}.')
             
             if not self.check_cached_data(report_name, self.accounts, self.regions, self.customer, self.additional_input_data, self.expiration_days):
                 #if report is not cached, execute report
@@ -257,17 +257,17 @@ class ReportProviderBase(ABC):
         try:
             report_directory = self.report_directory
         except:
-            self.logger.exception(f'Mssing configuration parameter in cow internals {self.name()}_reports section: report_directory')
+            self.logger.error(f'Mssing configuration parameter in cow internals {self.name()}_reports section: report_directory')
             raise MissingCurConfigurationParameterException(f'Missing configuration parameter in cow internals {self.name()}_reports section: report_directory')
 
         if report_directory is None:
-            self.logger.exception(f'Provider {self.name()}_reports is missing a variable overrider for self.report_directory')
+            self.logger.error(f'Provider {self.name()}_reports is missing a variable overrider for self.report_directory')
             raise MissingCurConfigurationParameterException(f'Provider {self.name()}_reports is missing a variable overrider for self.report_directory')
         
         try:
             report_files = [f for f in report_directory.glob('*.py') if f.is_file()]
         except FileNotFoundError as e:
-            self.logger.exception(f'[Error] Unable to locate reports directory for {self.name()}_reports.  Check if directory exists: {report_directory}')
+            self.logger.error(f'[Error] Unable to locate reports directory for {self.name()}_reports.  Check if directory exists: {report_directory}')
             raise MissingReportsDirectoryException(f'[Error] Unable to locate reports directory for {self.name()}_reports.  Check if directory exists: {report_directory}')
             
         all_reports_found = []
@@ -357,7 +357,7 @@ class ReportProviderBase(ABC):
                 region = self.appConfig.selected_regions[0]
         except Exception as e:
             msg = f'Error: credentials expired.  Get new credentials before starting the program.'
-            self.logger.info(msg)
+            self.logger.exception(msg)
             self.appConfig.console.print(f'\n[red underline]{msg}')
             sys.exit(0)
 

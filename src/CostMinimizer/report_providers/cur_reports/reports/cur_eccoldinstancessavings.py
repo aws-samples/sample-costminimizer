@@ -8,6 +8,7 @@ from ..cur_base import CurBase
 import pandas as pd
 import time
 import sqlparse
+from rich.progress import track
 
 class CurEccoldinstancessavings(CurBase):
     """
@@ -90,7 +91,7 @@ class CurEccoldinstancessavings(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows: {str(e)}")
+            print(f"Error in counting rows in report_result: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -124,10 +125,9 @@ class CurEccoldinstancessavings(CurBase):
             return results
         else:
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
-            self.appConfig.console.print(l_msg)
             raise Exception(l_msg)
 
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         self.group_by = group_by
@@ -138,8 +138,9 @@ class CurEccoldinstancessavings(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            l_msg = f"\n[red]Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
-            self.appConfig.console.print(l_msg)
+            l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []
@@ -147,18 +148,22 @@ class CurEccoldinstancessavings(CurBase):
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
-            for resource in response[1:]:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
                 data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'],
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'],
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'],
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'], 
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'], 
-                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'], 
-                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue'], 
-                    self.get_required_columns()[7]: resource['Data'][7]['VarCharValue'], 
-                    self.get_required_columns()[8]: resource['Data'][8]['VarCharValue'], 
-                    self.get_required_columns()[9]: resource['Data'][9]['VarCharValue']
+                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '', 
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else '', 
+                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else '', 
+                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue'] if 'VarCharValue' in resource['Data'][6] else '', 
+                    self.get_required_columns()[7]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else '', 
+                    self.get_required_columns()[8]: resource['Data'][8]['VarCharValue'] if 'VarCharValue' in resource['Data'][8] else 0.0, 
+                    self.get_required_columns()[9]: resource['Data'][9]['VarCharValue'] if 'VarCharValue' in resource['Data'][9] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -168,22 +173,22 @@ class CurEccoldinstancessavings(CurBase):
 
     def get_required_columns(self) -> list:
         return [
-                    'line_item_usage_account_id',
+                    'usage_account_id',
                     'product_instance_type_family',
                     'product_tenancy',
                     'product_region_code',
                     'product_current_generation',
-                    'line_item_operation',
-                    'line_item_resource_id',
+                    'operation',
+                    'resource_id',
                     'instance_type',
-                    'line_item_unblended_rate',
+                    'unblended_rate',
                     'hours'
             ]
 
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         # This method needs to be implemented with the specific SQL query for EC2 old instances upgrade savings
 
         l_SQL= f"""select line_item_usage_account_id, 
@@ -200,13 +205,13 @@ FROM
 {fqdb_name} 
 WHERE 
 {account_id} 
-AND line_item_product_code='AmazonEC2' 
+line_item_product_code='AmazonEC2' 
 AND line_item_operation like 'RunInstances%' 
 AND product_tenancy <>'' 
 AND (line_item_line_item_type = 'Usage' 
 OR line_item_line_item_type = 'SavingsPlanCoveredUsage' 
 ) 
-AND line_item_usage_start_date BETWEEN CURRENT_DATE - INTERVAL '1' MONTH AND CURRENT_DATE 
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 group by line_item_usage_account_id, 
 product_instance_type_family, 
 product_tenancy, 

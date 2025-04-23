@@ -131,7 +131,7 @@ class CoInstancesebsreport(CoBase):
             'CSV_FILENAME' : self.name() + '.csv'
         }
 
-    def sql(self, client, region, account, replace=True, query_type='sql_s_r'): #required - see abstract class
+    def sql(self, client, region, account, replace=True, query_type='sql_s_r', display = False, report_name = ''): #required - see abstract class
         type = 'chart' #other option table
 
         # implement object of InstanceReport class
@@ -144,7 +144,7 @@ class CoInstancesebsreport(CoBase):
         # each dictionary contains information about an instance
         # such as instance ID, instance type, storage size, storage cost, and monthly cost
 
-        results = IR.list_ebs_instances_prices( (region, account))
+        results = IR.list_ebs_instances_prices( (region, account), display, report_name)
         df = pd.DataFrame( results)
         self.report_result.append({'Name':self.name(),'Data':df, 'Type':type, 'DisplayPotentialSavings':False})
 

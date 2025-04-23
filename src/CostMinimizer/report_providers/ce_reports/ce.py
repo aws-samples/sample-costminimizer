@@ -174,10 +174,10 @@ class CeReports(ReportProviderBase):
 
                 self.logger.info(f'Running CE query: {report_name} ')
             except Exception as e:
-                self.logger.info('Exception occured when during execution of CE query')
-                self.logger.info(e)
-                self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of CE query {e}')
-                exit()
+                self.logger.error('Exception occured when during execution of CE query')
+                self.logger.exception(e)
+                self.appConfig.console.print(f'[red]Exception occured when during execution of CE query >>> {e}')
+                sys.exit()
 
         report_name = report_object.name()
         
@@ -188,12 +188,7 @@ class CeReports(ReportProviderBase):
                 pass
 
         else:
-            if display:
-                for _ in track(range(1), description=display_msg):
-                    # execute report for all accounts/regions
-                    run_query(report_object)
-            else:
-                run_query(report_object)
+            run_query(report_object)
 
     def fetch_data(self, 
         reports_in_progress:list, 

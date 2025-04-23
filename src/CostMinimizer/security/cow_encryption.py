@@ -220,13 +220,13 @@ class CowEncryption:
             nonce = cipher.nonce
             ciphertext, tag = cipher.encrypt_and_digest(data)
         except IOError as e:
-            self.logger.info(f'Unable to read file: {file_to_encrypt}.')
+            self.logger.exception(f'Unable to read file: {file_to_encrypt}.')
             raise FileEncryptionOperationError(f'Unable to read file: {file_to_encrypt}.')
         except ValueError:
-            self.logger.info('Encryption error occurred.')
+            self.logger.exception('Encryption error occurred.')
             raise FileEncryptionOperationError('Encryption error occurred.')
         except Exception:
-            self.logger.info('Unexpected error during file encryption.')
+            self.logger.exception('Unexpected error during file encryption.')
             raise FileEncryptionOperationError('Unexpected error during file encryption.')
 
         self.file_write_operation('encrypt', file_to_encrypt, data=None, cipher=cipher, tag=tag, ciphertext=ciphertext)

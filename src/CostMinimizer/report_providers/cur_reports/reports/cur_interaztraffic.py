@@ -9,6 +9,7 @@ from ..cur_base import CurBase  # Import the base class for CUR reports
 import pandas as pd  # For data manipulation and analysis
 import sqlparse  # For SQL query formatting
 import time  # For handling time-related operations in Athena queries
+from rich.progress import track
 
 class CurInteraztraffic(CurBase):
     """
@@ -235,11 +236,9 @@ class CurInteraztraffic(CurBase):
             # If the query failed, log the error and raise an exception
             # This provides information about why the query failed
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
-            self.appConfig.console.print(l_msg)
             raise Exception(l_msg)
 
-
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         """
@@ -272,8 +271,9 @@ class CurInteraztraffic(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            l_msg = f"\n[red]Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
-            self.appConfig.console.print(l_msg)
+            l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []  # Initialize an empty list to store processed data
@@ -283,15 +283,19 @@ class CurInteraztraffic(CurBase):
             print(f"No resources found for athena request {p_SQL}.")
         else:
             # Skip the first row (headers) and process each subsequent row
-            for resource in response[1:]:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
                 # Create a dictionary for each row, mapping column names to values
                 # This step transforms the Athena query results into a format suitable for a pandas DataFrame
                 data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'],  # line_item_usage_account_id
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'],  # line_item_resource_id
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'],  # line_item_usage_type
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'],  # usage
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue']  # cost
+                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0, 
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
 
                 }
                 data_list.append(data_dict)
@@ -320,9 +324,9 @@ class CurInteraztraffic(CurBase):
         list: A list of column names (strings) that the report should include.
         """
         return [
-            'line_item_usage_account_id',
-            'line_item_resource_id',
-            'line_item_usage_type',
+            'usage_account_id',
+            'resource_id',
+            'usage_type',
             'usage',
             'cost'
             #self.ESTIMATED_SAVINGS_CAPTION
@@ -338,7 +342,7 @@ class CurInteraztraffic(CurBase):
         """
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         """
         Generates the SQL query for retrieving Inter-AZ traffic data.
 
@@ -376,6 +380,7 @@ WHERE
 {account_id} 
 line_item_line_item_type = 'Usage' 
 AND line_item_usage_type LIKE '%DataTransfer-Regional-Bytes' 
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 1,2,3  -- Group by account, resource, and usage type (using column positions for brevity and potential performance benefits)
 ORDER BY SUM(line_item_unblended_cost) DESC"""
 

@@ -8,6 +8,7 @@ from ..cur_base import CurBase
 import pandas as pd
 import time
 import sqlparse
+from rich.progress import track
 
 class CurEccdetailedmonitoring(CurBase):
     """
@@ -80,7 +81,7 @@ class CurEccdetailedmonitoring(CurBase):
 
             total_savings = 0.0
             for _, row in query_results.iterrows():
-                savings = float(row['savings'])
+                savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
                 total_savings += savings
 
             self._savings = total_savings
@@ -90,7 +91,7 @@ class CurEccdetailedmonitoring(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows: {str(e)}")
+            print(f"Error in counting rows in report_result: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -126,7 +127,7 @@ class CurEccdetailedmonitoring(CurBase):
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
             raise Exception(l_msg)
 
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         self.list_cols_currency = list_cols_currency
@@ -137,8 +138,9 @@ class CurEccdetailedmonitoring(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            l_msg = f"\n[red]Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
-            self.appConfig.console.print(l_msg)
+            l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []
@@ -146,17 +148,21 @@ class CurEccdetailedmonitoring(CurBase):
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
-            for resource in response[1:]:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
                 data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'],
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'],
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'],
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'], 
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'], 
-                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'], 
-                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue'], 
-                    self.get_required_columns()[7]: resource['Data'][7]['VarCharValue'], 
-                    self.get_required_columns()[8]: resource['Data'][8]['VarCharValue'] 
+                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '', 
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0, 
+                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else 0.0, 
+                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue'] if 'VarCharValue' in resource['Data'][6] else 0.0, 
+                    self.get_required_columns()[7]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else 0.0, 
+                    self.get_required_columns()[8]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -166,10 +172,10 @@ class CurEccdetailedmonitoring(CurBase):
 
     def get_required_columns(self) -> list:
         return [
-                    'line_item_usage_account_id',
+                    'usage_account_id',
                     'InstanceId',
                     'region',
-                    'line_item_resource_id', 
+                    'resource_id', 
                     'usage_quantity', 
                     'usage_cost', 
                     'rate', 
@@ -181,21 +187,22 @@ class CurEccdetailedmonitoring(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         # This method needs to be implemented with the specific SQL query for EC2 detailed monitoring optimization
 
-        l_SQL= f"""with base as (select line_item_resource_id resource_id 
+        l_SQL= f"""WITH base as 
+(select line_item_resource_id as resource_id 
 FROM 
 {fqdb_name} 
 WHERE 
 {account_id} 
-AND line_item_usage_start_date >= now() - INTERVAL '1' month 
+line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 AND line_item_product_code = 'AmazonEC2' and line_item_resource_id like '%i%' 
 AND line_item_usage_type LIKE '%BoxUsage%' 
 group by line_item_resource_id 
 having sum(line_item_usage_amount)>168 
-order by 1) 
-select 
+ORDER BY 1) 
+SELECT 
 line_item_usage_account_id , 
 split_part(split_part(line_item_resource_id,':',6),'/',2) InstanceId, 
 split_part(line_item_resource_id,':',4) region, 
@@ -205,13 +212,13 @@ sum(line_item_unblended_cost) usage_cost,
 sum(line_item_unblended_cost)/sum(line_item_usage_amount) rate, 
 (sum(line_item_unblended_cost)/sum(line_item_usage_amount))*7 savings 
 FROM 
-{fqdb_name},base b 
+{fqdb_name}, base b 
 WHERE 
 {account_id} 
-and split_part(split_part(line_item_resource_id,':',6),'/',2)=b.resource_id 
-AND line_item_usage_start_date >= now() - INTERVAL '2' day AND 
-product_product_name = 'AmazonCloudWatch' AND line_item_usage_type LIKE '%%MetricMonitorUsage%%' AND line_item_operation='MetricStorage:AWS/EC2' 
-AND  line_item_line_item_type ='Usage' 
+split_part(split_part(line_item_resource_id,':',6),'/',2)=b.resource_id 
+AND line_item_usage_start_date BETWEEN DATE_ADD('day', -2, DATE('{max_date}')) AND DATE('{max_date}') 
+AND product_product_name = 'AmazonCloudWatch' AND line_item_usage_type LIKE '%%MetricMonitorUsage%%' AND line_item_operation='MetricStorage:AWS/EC2' 
+AND line_item_line_item_type ='Usage' 
 group by line_item_usage_account_id,line_item_resource_id, 
 split_part(split_part(line_item_resource_id,':',6),'/',2),split_part(line_item_resource_id,':',4) 
 order by 1,2"""
@@ -235,7 +242,7 @@ order by 1,2"""
 
     # return chart type 'chart' or 'pivot' or '' of the excel graph
     def set_chart_type_of_excel(self):
-        self.chart_type_of_excel = ''
+        self.chart_type_of_excel = 'pivot'
         return self.chart_type_of_excel
 
     # return range definition of the categories in the excel graph
@@ -246,14 +253,14 @@ order by 1,2"""
     # return range definition of the values in the excel graph
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
-        return 4, 1, 4, -1
+        return 8, 1, 8, -1
 
     # return range definition of the values in the excel graph
     def get_list_cols_currency(self):
         # [Col1, ..., ColN]
-        return [6,7,8]
+        return [6,7,8,9]
 
     # return column to group by in the excel graph
     def get_group_by(self):
         # [ColX]
-        return [1]
+        return [2]

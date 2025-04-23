@@ -6,6 +6,7 @@ __license__ = "Apache-2.0"
 
 from ..ta_base import TaBase
 import pandas as pd
+from rich.progress import track
 
 class TaIdleloadbalancers(TaBase):
 
@@ -87,7 +88,7 @@ class TaIdleloadbalancers(TaBase):
 		#nothing to calculate for this check we just sum up the column 'ebs_gp3_potential_savings'
         return df
 
-    def addTaReport(self, client, Name, CheckId):
+    def addTaReport(self, client, Name, CheckId, Display = True):
         type = 'table'
         results = []
 
@@ -96,9 +97,10 @@ class TaIdleloadbalancers(TaBase):
         data_list = []
 
         if response['result']['status'] == 'not_available':
-            print(f"No resources found for checkid {CheckId}.")
+            print(f"No resources found for checkid {CheckId} - {Name}.")
         else:
-            for resource in response['result']['flaggedResources']:
+            display_msg = f'[green]Running Trusted Advisor Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+            for resource in track(response['result']['flaggedResources'], description=display_msg):
                 data_dict = {
                     # Rename columns for better readability
                     self.get_required_columns()[0]: resource['metadata'][0],

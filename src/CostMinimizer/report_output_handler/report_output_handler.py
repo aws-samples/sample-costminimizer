@@ -48,7 +48,7 @@ class ReportOutputHandlerBase:
         if determine_report_directory or self.appConfig.auth_manager.appInstance.mode == 'module':
             self.output_folder = self.get_output_folder()
 
-        self.report_directory = self.get_report_directory() #i.e customer_name-2023-12-12-12-12
+        self.report_directory = self.get_report_directory() #i.e $ACCOUNT_NUMBER/$ACCOUNT_NUMBER-2023-12-12-12-12
 
         self.tmp_folder = self.report_directory / self.appConfig.internals['internals']['reports']['tmp_folder']
 
@@ -73,31 +73,31 @@ class ReportOutputHandlerBase:
         try:
             os.makedirs(self.report_directory, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', self.report_directory)
+            self.logger.error('Unable to create report output directory %s', self.report_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {self.report_directory}')from exc
 
         try:
             os.makedirs(self.tmp_folder, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', self.tmp_folder)
+            self.logger.error('Unable to create report output directory %s', self.tmp_folder)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {self.tmp_folder}')from exc
 
         try:
             os.makedirs(self.report_metadata, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report metadata directory %s', self.report_metadata)
+            self.logger.error('Unable to create report metadata directory %s', self.report_metadata)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report metadata directory {self.report_metadata}')from exc
 
         try:
             os.makedirs(self.csv_directory, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', self.csv_directory)
+            self.logger.error('Unable to create report output directory %s', self.csv_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {self.csv_directory}') from exc
 
         try:
             os.makedirs(self.pptx_directory, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', self.pptx_directory)
+            self.logger.error('Unable to create report output directory %s', self.pptx_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {self.pptx_directory}') from exc
 
     def get_output_folder(self) -> pathlib.PosixPath:
@@ -113,8 +113,10 @@ class ReportOutputHandlerBase:
         # get top level report directory
         #report_directory = '.'
         
-        report_directory = self.appConfig.config['aws_cow_account'] + '-' + self.report_time
-        return self.output_folder / report_directory
+        cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
+        report_directory = cur_table + '-' + self.report_time
+
+        return self.output_folder / self.appConfig.config['aws_cow_account'] / report_directory
 
     def delete_report(self, customer, report_time) -> bool:
         report_name = f'{customer}-{report_time}'
@@ -157,7 +159,7 @@ class ReportOutputMetaData(ReportOutputHandlerBase):
         try:
             os.makedirs(report_directory, exist_ok=True)
         except ExceptionCreatingXLSFile as exc:
-            self.logger.info('Unable to create report output directory %s', report_directory)
+            self.logger.error('Unable to create report output directory %s', report_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {report_directory}') from exc
 
         for report in self.completed_reports:
@@ -209,7 +211,7 @@ class ReportOutputMetaData(ReportOutputHandlerBase):
         try:
             os.makedirs(report_directory, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', report_directory)
+            self.logger.error('Unable to create report output directory %s', report_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {report_directory}') from exc
 
         reports = self.completed_reports + self.failed_reports
@@ -232,7 +234,7 @@ class ReportOutputMetaData(ReportOutputHandlerBase):
         try:
             os.makedirs(report_directory, exist_ok=True)
         except Exception as exc:
-            self.logger.info('Unable to create report output directory %s', report_directory)
+            self.logger.error('Unable to create report output directory %s', report_directory)
             raise ReportDirectoryStructureCreationErrorException(f'Unable to create report output directory {report_directory}') from exc
 
         report_log_filename = report_directory / 'execution_ids.json'

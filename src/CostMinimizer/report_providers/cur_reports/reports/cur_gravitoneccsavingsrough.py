@@ -8,6 +8,7 @@ from ..cur_base import CurBase
 import pandas as pd
 import time
 import sqlparse
+from rich.progress import track
 
 class CurGravitoneccsavingsrough(CurBase):
     """Cost and Usage Report based Graviton migration savings calculator."""
@@ -91,7 +92,7 @@ class CurGravitoneccsavingsrough(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows: {str(e)}")
+            print(f"Error in counting rows in report_result: {str(e)}")
             return 0
 
     def get_estimated_savings(self, sum=True) -> float:
@@ -187,10 +188,9 @@ class CurGravitoneccsavingsrough(CurBase):
             return results
         else:
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
-            self.appConfig.console.print(l_msg)
             raise Exception(l_msg)
 
-    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by):
+    def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
         self.list_cols_currency = list_cols_currency
@@ -202,7 +202,9 @@ class CurGravitoneccsavingsrough(CurBase):
             cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
-            self.appConfig.console.print(f"\n[red]Athena Query failed with state (verify Athena configuration): {e}")
+            l_msg = f"Athena Query failed with state (verify Athena configuration): {e}"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
             return
 
         data_list = []
@@ -210,15 +212,19 @@ class CurGravitoneccsavingsrough(CurBase):
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
-            for resource in response[1:]:
+            if display:
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            else:
+                display_msg = ''
+            for resource in track(response[1:], description=display_msg):
                 data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'], # line_item_usage_account_id
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'], # product_instance_type
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'], # product_operating_system
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'], # current_cost
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'], # graviton_cost
-                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'], # potential_savings
-                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue']  # savings
+                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',  # line_item_usage_account_id
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',  # product_instance_type
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',  # product_operating_system
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0, # current_cost
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0, # graviton_cost
+                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else 0.0, # potential_savings
+                    self.get_required_columns()[6]: resource['Data'][6]['VarCharValue'] if 'VarCharValue' in resource['Data'][6] else 0.0  # savings
                 }
                 data_list.append(data_dict)
 
@@ -226,7 +232,7 @@ class CurGravitoneccsavingsrough(CurBase):
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
-    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str):
+    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         """Generate SQL query for Graviton migration analysis.
         Add this WHERE condition to exclude Windows OS:   AND product_operating_system NOT LIKE '%Windows%'
         """
@@ -248,6 +254,7 @@ AND line_item_usage_type LIKE '%BoxUsage%'
 AND product_instance_type NOT LIKE '%.metal' 
 AND product_instance_type NOT LIKE 'a1.%' 
 AND product_instance_type NOT LIKE '%g.%' 
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
 product_instance_type, 

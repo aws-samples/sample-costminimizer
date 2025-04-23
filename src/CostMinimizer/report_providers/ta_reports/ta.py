@@ -139,7 +139,7 @@ class TaReports(ReportProviderBase):
 
     def execute_report(self, report_object, display, cached=False):
 
-        def run_query( report_object):
+        def run_query( report_object, display = True):
             try:
 
                 TaQuery = report_object.sql(self.list_ta_checks)
@@ -149,20 +149,20 @@ class TaReports(ReportProviderBase):
                     Id=TaQuery.get("ID", '???')
 
                     if report_object.service_name() == self.long_name():
-                        report_object.addTaReport( self.client , Name, Id)
+                        report_object.addTaReport( self.client , Name, Id, display)
 
                     self.logger.info(f'Running Trusted Advisor query: {report_name} ')
             except Exception as e:
-                self.logger.info('Exception occured when during execution of TA query')
-                self.logger.info(e)
-                self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of TA query {e}')
-                raise(e)
+                self.logger.error('Exception occured when during execution of TA query')
+                self.logger.exception(e)
+                self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of TA query >>> {e}')
+                sys.exit()
 
         try:
             self.list_ta_checks = self.client.describe_trusted_advisor_checks(language='en')
         except Exception as e:
-            self.logger.info('Exception occured when during execution of TA query')
-            self.logger.info(e)
+            self.logger.error('Exception occured when during execution of TA query')
+            self.logger.exception(e)
             self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of TA query {e}')
             sys.exit()
 
@@ -176,11 +176,9 @@ class TaReports(ReportProviderBase):
 
         else:
             if display:
-                for _ in track(range(1), description=display_msg):
-                    # execute report for all accounts/regions
-                    run_query(  report_object)
+                run_query(  report_object, True)
             else:
-                run_query( report_object)
+                run_query( report_object = False)
 
     def fetch_data(self, 
         reports_in_progress:list, 

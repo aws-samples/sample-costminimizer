@@ -13,6 +13,7 @@ import pandas as pd
 import boto3
 import json
 from typing import Optional, Dict, Any
+import sqlparse
 
 # Required to load modules from vendored su6bfolder (for clean development env)
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "./vendored"))
@@ -21,8 +22,239 @@ from abc import ABC
 from CostMinimizer.report_providers.report_providers import ReportBase
 from pyathena.pandas.result_set import AthenaPandasResultSet
 
+from botocore.exceptions import ClientError
+
+
 #####################################################################################################################################""
-class AWSPricing:
+class RegionConversion():
+
+    def get_region_code(self, region_name):
+        """
+        Convert AWS region long name to region code
+        
+        Args:
+            region_name (str): Long name of the region (e.g., 'Europe (Ireland)')
+        Returns:
+            str: Region code (e.g., 'eu-west-1') or None if not found
+        """
+        region_mapping = {
+            'Europe (Ireland)': 'eu-west-1',
+            'Europe (London)': 'eu-west-2',
+            'Europe (Paris)': 'eu-west-3',
+            'Europe (Stockholm)': 'eu-north-1',
+            'Europe (Frankfurt)': 'eu-central-1',
+            'Europe (Milan)': 'eu-south-1',
+            'Europe (Spain)': 'eu-south-2',
+            'Europe (Zurich)': 'eu-central-2',
+            'EU (Ireland)': 'eu-west-1',
+            'EU (London)': 'eu-west-2',
+            'EU (Paris)': 'eu-west-3',
+            'EU (Stockholm)': 'eu-north-1',
+            'EU (Frankfurt)': 'eu-central-1',
+            'EU (Milan)': 'eu-south-1',
+            'EU (Spain)': 'eu-south-2',
+            'EU (Zurich)': 'eu-central-2',
+            'US East (N. Virginia)': 'us-east-1',
+            'US East (Ohio)': 'us-east-2',
+            'US West (N. California)': 'us-west-1',
+            'US West (Oregon)': 'us-west-2',
+            'Canada (Central)': 'ca-central-1',
+            'South America (São Paulo)': 'sa-east-1',
+            'Middle East (Bahrain)': 'me-south-1',
+            'Middle East (UAE)': 'me-central-1',
+            'Asia Pacific (Tokyo)': 'ap-northeast-1',
+            'Asia Pacific (Seoul)': 'ap-northeast-2',
+            'Asia Pacific (Singapore)': 'ap-southeast-1',
+            'Asia Pacific (Sydney)': 'ap-southeast-2',
+            'Asia Pacific (Mumbai)': 'ap-south-1'
+        }
+        
+        return region_mapping.get(region_name)
+
+    def get_region_name(self, region_code):
+        """
+        Convert AWS region code to region name
+        
+        Args:
+            region_code (str): AWS region code (e.g., 'us-east-1')
+            
+        Returns:
+            str: Region name (e.g., 'US East (N. Virginia)')
+        """
+        region_names = {
+            # Americas
+            'us-east-1': 'US East (N. Virginia)',
+            'us-east-2': 'US East (Ohio)',
+            'us-west-1': 'US West (N. California)',
+            'us-west-2': 'US West (Oregon)',
+            'ca-central-1': 'Canada (Central)',
+            'sa-east-1': 'South America (São Paulo)',
+            
+            # Europe
+            'eu-north-1': ('EU (Stockholm)', 'Europe (Stockholm)'),
+            'eu-west-1': ('EU (Ireland)', 'Europe (Ireland)'),
+            'eu-west-2': ('EU (London)', 'Europe (London)'),
+            'eu-west-3': ('EU (Paris)', 'Europe (Paris)'),
+            'eu-central-1': ('EU (Frankfurt)', 'Europe (Frankfurt)'),
+            'eu-central-2': ('EU (Zurich)', 'Europe (Zurich)'),
+            'eu-south-1': ('EU (Milan)', 'Europe (Milan)'),
+            'eu-south-2': ('EU (Spain)', 'Europe (Spain)'),
+            
+            # Asia Pacific
+            'ap-east-1': 'Asia Pacific (Hong Kong)',
+            'ap-south-1': 'Asia Pacific (Mumbai)',
+            'ap-south-2': 'Asia Pacific (Hyderabad)',
+            'ap-southeast-1': 'Asia Pacific (Singapore)',
+            'ap-southeast-2': 'Asia Pacific (Sydney)',
+            'ap-southeast-3': 'Asia Pacific (Jakarta)',
+            'ap-southeast-4': 'Asia Pacific (Melbourne)',
+            'ap-northeast-1': 'Asia Pacific (Tokyo)',
+            'ap-northeast-2': 'Asia Pacific (Seoul)',
+            'ap-northeast-3': 'Asia Pacific (Osaka)',
+            
+            # Middle East
+            'me-south-1': 'Middle East (Bahrain)',
+            'me-central-1': 'Middle East (UAE)',
+            
+            # Africa
+            'af-south-1': 'Africa (Cape Town)',
+            
+            # China
+            'cn-north-1': 'China (Beijing)',
+            'cn-northwest-1': 'China (Ningxia)',
+            
+            # AWS GovCloud
+            'us-gov-east-1': 'AWS GovCloud (US-East)',
+            'us-gov-west-1': 'AWS GovCloud (US-West)',
+            
+            # Local Zones
+            'us-west-2-lax-1a': 'US West (Los Angeles)',
+            'us-west-2-las-1': 'US West (Las Vegas)',
+            
+            # Wavelength Zones
+            'us-east-1-wl1-bos-wlz-1': 'US East (Boston)',
+            'us-east-1-wl1-nyc-wlz-1': 'US East (New York)',
+            
+            # Israel
+            'il-central-1': 'Israel (Tel Aviv)'
+        }
+        
+        return region_names.get(region_code, region_code)
+
+#####################################################################################################################################""
+class AWSSnapshots(RegionConversion):
+    def __init__(self, app):
+        # Price List API is only available in us-east-1 or ap-south-1
+        self.ebs_client = boto3.client('ebs', region_name='us-east-1')
+        self.ec2_client = boto3.client('ec2', region_name='us-east-1')
+
+        # Cache for pricing data to avoid repeated API calls
+        self._price_cache = {}
+        self.database = app.database
+
+        self.logger = logging.getLogger(__name__)
+
+    def get_snapshot_info(self, snapshot_id, p_region):
+        """
+        Get the total size information for a specific EBS snapshot
+        
+        Args:
+            snapshot_id (str): The ID of the snapshot (e.g., 'snap-0123456789abcdef0')
+        Returns:
+            dict: Dictionary containing size information
+        """
+        try:
+
+            # define region to p_region for ec2_client
+            self.ec2_client = boto3.client('ec2', region_name=self.get_region_code(p_region))
+            self.ebs_client = boto3.client('ebs', region_name=self.get_region_code(p_region))
+
+            # Get basic snapshot information
+            response = self.ec2_client.describe_snapshots( SnapshotIds=[snapshot_id])
+            
+            if not response['Snapshots']:
+                return None
+                
+            snapshot = response['Snapshots'][0]
+            volume_size = snapshot['VolumeSize']  # Size in GiB
+            
+            # Initialize size information dictionary
+            size_info = {
+                'snapshot_id': snapshot_id,
+                'volume_size_gib': volume_size,
+                'volume_size_bytes': volume_size * 1024 * 1024 * 1024,  # Convert GiB to bytes
+                'start_time': snapshot['StartTime'],
+                'description': snapshot.get('Description', ''),
+                'state': snapshot['State']
+            }
+            
+            # Get block information using EBS direct APIs
+            try:
+                # List all blocks in the snapshot
+                block_count = 0
+                next_token = None
+                
+                while True:
+                    if next_token:
+                        blocks_response = self.ebs_client.list_snapshot_blocks(
+                            SnapshotId=snapshot_id,
+                            MaxResults=1000,
+                            NextToken=next_token
+                        )
+                    else:
+                        blocks_response = self.ebs_client.list_snapshot_blocks(
+                            SnapshotId=snapshot_id,
+                            MaxResults=1000
+                        )
+                    
+                    # Each block is 512 KiB
+                    block_count += len(blocks_response.get('Blocks', []))
+                    
+                    next_token = blocks_response.get('NextToken')
+                    if not next_token:
+                        break
+                
+                # Calculate actual data size (each block is 512 KiB)
+                actual_size_bytes = block_count * 512 * 1024  # Convert blocks to bytes
+                size_info['actual_data_size_bytes'] = actual_size_bytes
+                size_info['actual_data_size_gib'] = actual_size_bytes / (1024 * 1024 * 1024)
+                size_info['block_count'] = block_count
+                
+            except ClientError as e:
+                # Handle case where EBS direct APIs might not be available
+                self.logger.warning(f"Could not get detailed block information: {str(e)}")
+                
+            return size_info
+            
+        except ClientError as e:
+            self.logger.info(f"Error getting snapshot information: {str(e)}")
+            return None
+
+    def print_snapshot_size_info(self, size_info):
+        """
+        Print formatted snapshot size information
+        """
+        if not size_info:
+            self.logger.warning("No snapshot information available")
+            return
+            
+        self.logger.info("\nSnapshot Size Information:")
+        self.logger.info("-" * 60)
+        self.logger.info(f"Snapshot ID: {size_info['snapshot_id']}")
+        self.logger.info(f"Volume Size: {size_info['volume_size_gib']:.2f} GiB")
+        self.logger.info(f"Creation Date: {size_info['start_time']}")
+        self.logger.info(f"State: {size_info['state']}")
+        
+        if 'actual_data_size_gib' in size_info:
+            self.logger.info(f"Actual Data Size: {size_info['actual_data_size_gib']:.2f} GiB")
+            self.logger.info(f"Block Count: {size_info['block_count']}")
+            self.logger.info(f"Space Efficiency: {(size_info['actual_data_size_gib']/size_info['volume_size_gib']*100):.2f}%")
+        
+        if size_info['description']:
+            self.logger.info(f"Description: {size_info['description']}")
+
+#####################################################################################################################################""
+class AWSPricing():
     def __init__(self, app):
         # Price List API is only available in us-east-1 or ap-south-1
         self.pricing_client = boto3.client('pricing', region_name='us-east-1')
@@ -165,7 +397,7 @@ class AWSPricing:
                         'timestamp': spot_response['SpotPriceHistory'][0]['Timestamp']
                     }
             except Exception as e:
-                self.logger.warning(f"Warning: Could not fetch spot pricing: {str(e)}")
+                self.logger.warning(f"Could not fetch spot pricing: {str(e)}")
                 raise e
 
             # Cache the results
@@ -173,7 +405,7 @@ class AWSPricing:
             return price_data
 
         except Exception as e:
-            self.logger.warning(f"Warning: Fetching price for {instance_type}: {str(e)}")
+            self.logger.warning(f"Fetching price for {instance_type}: {str(e)}")
             raise e
 
     # get lambda price using API AWS where the parameter are instance_type, region, usage_type
@@ -236,7 +468,7 @@ class AWSPricing:
             return price_data
 
         except Exception as e:
-            self.logger.warning(f"Warning: Fetching Lambda price for {usage_type}: {str(e)}")
+            self.logger.warning(f"Fetching Lambda price for {usage_type}: {str(e)}")
             raise e
 
     def get_savings_plan_rates(self, instance_type: str, region: str = None) -> Optional[Dict]:
@@ -258,7 +490,7 @@ class AWSPricing:
 
             return response
         except Exception as e:
-            self.logger.warning(f"Warning: Fetching Savings Plan rates: {str(e)}")
+            self.logger.warning(f"Fetching Savings Plan rates: {str(e)}")
             return None
 
     def compare_instance_prices(self, 
@@ -291,81 +523,11 @@ class AWSPricing:
         return comparison
 
 #####################################################################################################################################""
-class InstanceConversionToGraviton():
+class InstanceConversionToGraviton(RegionConversion):
 
     def __init__(self, appInstance):
         # Link to database class
         self.database = appInstance.database
-
-    def get_region_name(self, region_code):
-        """
-        Convert AWS region code to region name
-        
-        Args:
-            region_code (str): AWS region code (e.g., 'us-east-1')
-            
-        Returns:
-            str: Region name (e.g., 'US East (N. Virginia)')
-        """
-        region_names = {
-            # Americas
-            'us-east-1': 'US East (N. Virginia)',
-            'us-east-2': 'US East (Ohio)',
-            'us-west-1': 'US West (N. California)',
-            'us-west-2': 'US West (Oregon)',
-            'ca-central-1': 'Canada (Central)',
-            'sa-east-1': 'South America (São Paulo)',
-            
-            # Europe
-            'eu-north-1': ('EU (Stockholm)', 'Europe (Stockholm)'),
-            'eu-west-1': ('EU (Ireland)', 'Europe (Ireland)'),
-            'eu-west-2': ('EU (London)', 'Europe (London)'),
-            'eu-west-3': ('EU (Paris)', 'Europe (Paris)'),
-            'eu-central-1': ('EU (Frankfurt)', 'Europe (Frankfurt)'),
-            'eu-central-2': ('EU (Zurich)', 'Europe (Zurich)'),
-            'eu-south-1': ('EU (Milan)', 'Europe (Milan)'),
-            'eu-south-2': ('EU (Spain)', 'Europe (Spain)'),
-            
-            # Asia Pacific
-            'ap-east-1': 'Asia Pacific (Hong Kong)',
-            'ap-south-1': 'Asia Pacific (Mumbai)',
-            'ap-south-2': 'Asia Pacific (Hyderabad)',
-            'ap-southeast-1': 'Asia Pacific (Singapore)',
-            'ap-southeast-2': 'Asia Pacific (Sydney)',
-            'ap-southeast-3': 'Asia Pacific (Jakarta)',
-            'ap-southeast-4': 'Asia Pacific (Melbourne)',
-            'ap-northeast-1': 'Asia Pacific (Tokyo)',
-            'ap-northeast-2': 'Asia Pacific (Seoul)',
-            'ap-northeast-3': 'Asia Pacific (Osaka)',
-            
-            # Middle East
-            'me-south-1': 'Middle East (Bahrain)',
-            'me-central-1': 'Middle East (UAE)',
-            
-            # Africa
-            'af-south-1': 'Africa (Cape Town)',
-            
-            # China
-            'cn-north-1': 'China (Beijing)',
-            'cn-northwest-1': 'China (Ningxia)',
-            
-            # AWS GovCloud
-            'us-gov-east-1': 'AWS GovCloud (US-East)',
-            'us-gov-west-1': 'AWS GovCloud (US-West)',
-            
-            # Local Zones
-            'us-west-2-lax-1a': 'US West (Los Angeles)',
-            'us-west-2-las-1': 'US West (Las Vegas)',
-            
-            # Wavelength Zones
-            'us-east-1-wl1-bos-wlz-1': 'US East (Boston)',
-            'us-east-1-wl1-nyc-wlz-1': 'US East (New York)',
-            
-            # Israel
-            'il-central-1': 'Israel (Tel Aviv)'
-        }
-        
-        return region_names.get(region_code, region_code)
 
     def get_graviton_equivalent(self, instance_family):
         # Remove any suffix after dot (e.g., 'search' or 'elasticsearch')
@@ -675,7 +837,7 @@ class InstanceConversionToGraviton():
             return recommendations
 
         except Exception as e:
-            self.logger.warning(f"Warning: Getting Graviton equivalents: {str(e)}")
+            self.logger.warning(f"Getting Graviton equivalents: {str(e)}")
             return None
 
     def get_graviton_equivalents_from_db(self, instance_id, region, account_id):
@@ -712,7 +874,7 @@ class InstanceConversionToGraviton():
             return recommendations
 
         except Exception as e:
-            self.logger.warning(f"Warning: getting Graviton equivalents: {str(e)}")
+            self.logger.warning(f"Getting Graviton equivalents: {str(e)}")
             return None
 
 #####################################################################################################################################""
@@ -777,7 +939,7 @@ class CurBase(ReportBase, ABC):
             self.cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
             self.cur_region = self.appConfig.config['cur_region']
         except KeyError as e:
-            self.logger.exception(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
+            self.logger.error(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
             raise
 
         #Athena table name
@@ -985,7 +1147,7 @@ class CurBase(ReportBase, ABC):
 
                 if not pivot_data.empty:
                     # Create a new worksheet for the chart
-                    l_name_of_worksheet = f'{worksheet_name}-GroupBy'
+                    l_name_of_worksheet = f'{worksheet_name[:31-len('-GroupBy')]}-GroupBy'
                     l_name_of_worksheet = l_name_of_worksheet[:31]
                     chart_sheet = workbook.add_worksheet(l_name_of_worksheet)
 
@@ -1018,3 +1180,33 @@ class CurBase(ReportBase, ABC):
                     # Insert the chart into the worksheet
                     chart_sheet.insert_chart('D2', chart, {'x_scale': 2, 'y_scale': 1.5})
                     return
+
+    def GetMinAndMaxDateFromCurTable(self, client, fqdb_name: str, payer_id: str = '', account_id: str = '', region: str = ''):
+        # self.minDate and self.maxDate is empty string
+        try:
+            l_msg = f"Get minDate and maxDate from the CUR table {fqdb_name}, please wait..."
+            self.appConfig.console.print(l_msg)
+
+            # get minDate and maxDate from the CUR table, used for selection like 1 month records old or 15 days records old
+            l_SQL = f"""SELECT 
+CAST(DATE_TRUNC('month', max(distinct(bill_billing_period_start_date))) AS DATE), 
+CAST(DATE_ADD('month', 1, DATE_TRUNC('month', max(distinct(bill_billing_period_start_date)))) - INTERVAL '1' DAY AS DATE) 
+FROM {fqdb_name} 
+GROUP BY bill_billing_period_start_date;"""
+            l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
+            l_SQL3 = sqlparse.format(l_SQL2, keyword_case='upper', reindent=False, strip_comments=True)
+            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            response = self.run_athena_query(client, l_SQL3, self.appConfig.config['cur_s3_bucket'], cur_db)
+            if len(response) == 0:
+                self.logger.warning(f"No resources found for athena request : {l_SQL3}.")
+            else:
+                minDate = response[1]['Data'][0]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][0] else ''
+                maxDate = response[1]['Data'][1]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][1] else ''
+                l_msg = f"MinDate is {minDate} and MaxDate is {maxDate} "
+                self.appConfig.console.print(l_msg)
+                return minDate, maxDate
+        except Exception as e:
+            l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
+            self.appConfig.console.print("\n[red]"+l_msg)
+            self.logger.error(l_msg)
+        return '', ''

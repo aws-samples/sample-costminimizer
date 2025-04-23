@@ -6,6 +6,7 @@ __license__ = "Apache-2.0"
 
 from ..ta_base import TaBase
 import pandas as pd
+from rich.progress import track
 
 class TaAmazonrdsidledbinstances(TaBase):
 
@@ -106,7 +107,7 @@ class TaAmazonrdsidledbinstances(TaBase):
 	def enable_comparison(self) -> bool:
 		return False
 
-	def addTaReport(self, client, Name, CheckId):
+	def addTaReport(self, client, Name, CheckId, Display = True):
 		type = 'chart'  # default type
 
 		response = client.describe_trusted_advisor_check_result(checkId=CheckId)
@@ -114,7 +115,7 @@ class TaAmazonrdsidledbinstances(TaBase):
 		data_list = []
         
 		if response['result']['status'] == 'not_available':
-			print(f"No resources found for checkid {CheckId}.")
+			self.appConfig.logger.info(f"No resources found for checkid {CheckId}.")
 		else:
 			for resource in response['result']['flaggedResources']:
 				data_dict = {

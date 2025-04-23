@@ -167,7 +167,7 @@ class CoGraviton(CoBase):
         except Exception as e:
             raise RuntimeError(f"Error calculating Graviton savings: {str(e)}") from e
 
-    def sql(self, client, region, account, replace=True, query_type='sql_s_r'):
+    def sql(self, client, region, account, replace=True, query_type='sql_s_r', display = True, report_name = ''):
         type = 'chart' #other option table
 
         # implement object of InstanceReport class
@@ -180,7 +180,7 @@ class CoGraviton(CoBase):
         # each dictionary contains information about an instance
         # such as instance ID, instance type, storage size, storage cost, and monthly cost
 
-        results = IR.get_recommendations_with_costs( (region, account))
+        results = IR.get_recommendations_with_costs( (region, account), display, report_name)
         df = pd.DataFrame( results)
         self.report_result.append({'Name':self.name(),'Data':df, 'Type':type, 'DisplayPotentialSavings':True})
 

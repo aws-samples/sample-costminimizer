@@ -325,9 +325,9 @@ class CowReportComparison(CowReportComparisonBase):
                 worksheet.write_formula(string.ascii_uppercase[2+item]+str(max_row+6), str(len(report_folder_regions_accounts[item][0])), numeric_column_format)
             except:
                 ExceptionComputeRegionsAccountsExcelFile(f'Unable to compute the number of accounts and regions for folder  : {self.output_folder}')
-                l_mess = f'WARNING: Unable to compute the number of accounts and regions for folder  : {self.output_folder}'
+                l_mess = f'Unable to compute the number of accounts and regions for folder  : {self.output_folder}'
                 print(l_mess)
-                self.logger.info(l_mess)
+                self.logger.warning(l_mess)
             item = item + 1
 
     #----------------------------------------------------------------------------------------------------------------------------------------------
@@ -446,8 +446,8 @@ class CowReportComparison(CowReportComparisonBase):
                         if csv_file_df.empty:
                             df_empty = pd.DataFrame(data=None, columns=csv_definition_found['CSV_COLUMNS_XLS'])
                             df_ta_co_group.append(df_empty)
-                            l_mess = f'WARNING: file {str(l_files_from_filetype_in_folders)} is empty => skipping the file.'
-                            self.logger.info(l_mess)
+                            l_mess = f'File {str(l_files_from_filetype_in_folders)} is empty => skipping the file.'
+                            self.logger.warning(l_mess)
                             print(l_mess)
                             continue
                     
@@ -480,9 +480,9 @@ class CowReportComparison(CowReportComparisonBase):
                         except Exception as e:
                             df_empty = pd.DataFrame(data=None, columns=csv_definition_found['CSV_COLUMNS_XLS'])
                             df_ta_co_group.append(df_empty)
-                            l_mess = f'WARNING: configuration issue. Dataframe Group By Exception occured with {str(l_files_from_filetype_in_folders)} / ' + repr(e) + ' => skipping file.'
+                            l_mess = f'Configuration issue. Dataframe Group By Exception occured with {str(l_files_from_filetype_in_folders)} / ' + repr(e) + ' => skipping file.'
                             print(l_mess)
-                            self.logger.info(l_mess)
+                            self.logger.warning(l_mess)
                             continue
 
                         df_ta_co_group.append(grouped_df)

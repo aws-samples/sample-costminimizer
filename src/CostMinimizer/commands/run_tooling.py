@@ -572,7 +572,7 @@ class RunToolingRun:
             try:
                 total_savings = total_savings + l_savings
             finally:
-                self.logger.info(f'total_savings = {l_savings} via get_estimated_savings()')
+                self.logger.info(f'total_savings = {l_savings} via {report.name()}.get_estimated_savings()')
 
         cm.submit(metric)
 

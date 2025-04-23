@@ -61,13 +61,14 @@ class CurReports(ReportProviderBase):
         self.completed_reports = []
         self.failed_reports = []
         self.list_ta_checks = []
+        self.minDate = ''
+        self.maxDate = ''
 
         try:
             self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name=self.cur_region)
         except Exception as e:
             self.appConfig.console.print(f'\n[red]Unable to establish boto session for Support. \n{e}[/red]')
             sys.exit()
-
 
     @staticmethod
     def name():
@@ -94,7 +95,7 @@ class CurReports(ReportProviderBase):
             self.cur_table = self.appConfig.cur_table_arguments_parsed if hasattr(self.appConfig, 'cur_table_arguments_parsed') else self.appConfig.config['cur_table']
             self.cur_region = self.appConfig.cur_region_arguments_parsed if hasattr(self.appConfig, 'cur_region_arguments_parsed') else self.appConfig.config['cur_region']
         except KeyError as e:
-            self.logger.exception(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
+            self.logger.error(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
             raise
 
         #Athena table name
@@ -102,7 +103,7 @@ class CurReports(ReportProviderBase):
         self.cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
         self.fqdb_name = f'{self.cur_db}.{self.cur_table}'
         self.logger.info(f'Setting {self.name()} report table_name to: {self.fqdb_name}')
-        
+
         #Athena database connection
         self._cursor = self._make_cursor()
 
@@ -157,13 +158,20 @@ class CurReports(ReportProviderBase):
         return reports
 
     def execute_report(self, report_object, query, display=True, cached=False):
-        def run_query( report_object):
+        def run_query( report_object, display, report_name):
             try:
 
                 payer_str = "bill_payer_account_id='"+self.appConfig.config['aws_cow_account']+"' AND "
                 account_str = "line_item_usage_account_id LIKE '%' AND " #+self.appConfig.config['aws_cow_account']
                 region_str = "product_region='"+self.appConfig.selected_regions[0]+"' AND "
-                CurQuery = report_object.sql( self.fqdb_name, payer_str, account_str, region_str)
+
+                if self.minDate == '' or self.maxDate == '':
+                    self.minDate, self.maxDate = report_object.GetMinAndMaxDateFromCurTable( self.client , self.fqdb_name)
+                if self.maxDate == '':                 
+                    max_date = "NOW()"
+                else:
+                    max_date = self.maxDate
+                CurQuery = report_object.sql( self.fqdb_name, payer_str, account_str, region_str, max_date)
 
                 v_SQL=CurQuery.get("query", "")
 
@@ -172,14 +180,14 @@ class CurReports(ReportProviderBase):
                         report_object.get_range_categories() , 
                         report_object.get_range_values(),
                         report_object.get_list_cols_currency(),
-                        report_object.get_group_by())
+                        report_object.get_group_by(), display, report_name)
 
-                self.logger.info(f'Running Trusted Advisor query: {report_name} ')
+                self.logger.info(f'Running CUR query: {report_name} ')
             except Exception as e:
-                self.logger.info('Exception occured when during execution of CUR query')
-                self.logger.info(e)
-                self.appConfig.console.print(f'\n[red underline]Exception occured when during execution of CUR query {e}')
-                raise(e)
+                self.logger.error('Exception occured when during execution of CUR query')
+                self.logger.exception(e)
+                self.appConfig.console.print(f'\n[red underline]ERROR: Exception occured when during execution of CUR query >>> {e}')
+                sys.exit()
 
         report_name = report_object.name()
         
@@ -190,12 +198,7 @@ class CurReports(ReportProviderBase):
                 pass
 
         else:
-            if display:
-                for _ in track(range(1), description=display_msg):
-                    # execute report for all accounts/regions
-                    run_query(  report_object)
-            else:
-                run_query( report_object)
+            run_query( report_object, display, report_name)
 
     def fetch_data(self, 
         reports_in_progress:list, 

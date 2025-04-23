@@ -9,7 +9,7 @@ from ..co_base import CoBase
 
 import boto3
 import pandas as pd
-
+from rich.progress import track
 
 class CoInstancesreport(CoBase):
 
@@ -139,7 +139,7 @@ class CoInstancesreport(CoBase):
             'CSV_FILENAME' : self.name() + '.csv'
         }             
 
-    def sql(self, client, region, account, replace=True, query_type='sql_s_r'): #required - see abstract class
+    def sql(self, client, region, account, replace=True, query_type='sql_s_r', display = False, report_name = ''): #required - see abstract class
         type = 'chart' #other option table
         results = []
 
@@ -153,7 +153,11 @@ class CoInstancesreport(CoBase):
         # Create boto3 EC2 client 
         ec2_client = boto3.client('ec2', region_name=region)
 
-        for recommendation in recommendation_list:
+        if display:
+            display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+        else:
+            display_msg = ''
+        for recommendation in track(recommendation_list, description=display_msg):
                 data_dict = {}
                 data_dict['accountId'] = recommendation['accountId']
                 data_dict['region'] = recommendation['instanceArn'].split(':')[3]
