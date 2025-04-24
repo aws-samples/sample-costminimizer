@@ -214,21 +214,21 @@ group by 1,2;"""
         self.chart_type_of_excel = 'pivot'
         return self.chart_type_of_excel
 
-    # return range definition of the categories in the excel graph
+    # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
     def get_range_categories(self):
         # Col1, Lig1 to Col2, Lig2
         return 2, 0, 2, 0
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
         return 3, 1, 3, -1
 
-    # return list of columns values in the excel graph
+    # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
-        return [2,3]
+        return [3,4]
 
-    # return column to group by in the excel graph
+    # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
         return [2]

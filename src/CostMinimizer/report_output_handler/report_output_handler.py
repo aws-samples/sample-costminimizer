@@ -409,11 +409,11 @@ class ReportOutputExcel(ReportOutputHandlerBase):
     def create_readme_sheet(self) -> pd.DataFrame:
         # create readme sheet for report output
         data = {'README': ['''This report is created by the CostMinimizer Tool.  It is a summary of the estimated savings for the checks that were processed.
-The report is broken down by service and domain.  To view granular account level and resource level information please refer to the encrypted xls
+The report is broken down by service and domain.  To view granular account level and resource level information please refer to the xls
 files located in the accompanying xls/ folder.
 
 You can develop your own check or customize any existing check.
-A good way to do this is to use a GenAI coding tool and ask it to duplicate an existing check but modify it for a specific potential saving 
+A good way to do this is to use a GenAI coding tool and ask it to duplicate an existing check but modify it for a specific potential saving. 
 
 If there are any failures in your CostMinimizer Tool run, they should log information in your cow_log.log file.  For more information on
 troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-costminimizer''']}
@@ -570,6 +570,7 @@ troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-cos
             writer_summary.close()
         except Exception as exc:
              self.appConfig.console.print(f"[Red]Unable to create Summary XLS file on local folder: {exc}")
+             self.logger.exception(exc)
 
 class ReportOutputDisplayAlerts():
     # display alerts to console

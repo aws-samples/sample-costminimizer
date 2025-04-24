@@ -146,7 +146,7 @@ class TaAmazonrdsidledbinstances(TaBase):
 		# Col1, Lig1 to Col2, Lig2
 		return 1, 0, 1, 0
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
 	def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
 		return 10, 1, 10, -1

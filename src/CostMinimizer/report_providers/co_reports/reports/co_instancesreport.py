@@ -219,22 +219,22 @@ class CoInstancesreport(CoBase):
         self.chart_type_of_excel = 'pivot'
         return self.chart_type_of_excel
 
-    # return range definition of the categories in the excel graph
+    # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
     def get_range_categories(self):
         # X1,Y1 to X2,Y2
         return 1, 4, 1, 4
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # X1,Y1 to X2,Y2
         return 9,1,9,-1
 
-    # return list of columns values in the excel graph
+    # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [ColX1, ColX2,...]
         return [9]
 
-    # return column to group by in the excel graph
+    # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX1, ColX2,...]
         return [1]

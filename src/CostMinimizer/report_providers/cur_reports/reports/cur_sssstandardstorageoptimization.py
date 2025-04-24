@@ -266,22 +266,22 @@ ORDER BY standard_storage_spend DESC;"""
         self.chart_type_of_excel = ''
         return self.chart_type_of_excel
 
-    # return range definition of the categories in the excel graph
+    # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
     def get_range_categories(self):
         # Col1, Lig1 to Col2, Lig2
         return 2, 0, 2, 0
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
         return 5, 1, 5, -1
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [Col1, ..., ColN]
-        return [5]
+        return [2,3,4,5]
 
-    # return column to group by in the excel graph
+    # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
         return [1]

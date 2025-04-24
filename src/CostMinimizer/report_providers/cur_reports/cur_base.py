@@ -1107,7 +1107,7 @@ class CurBase(ReportBase, ABC):
 
             # Format workbook columns in self.list_cols_currency as money
             for col_idx in self.list_cols_currency:
-                col_letter = chr(65 + col_idx)
+                col_letter = chr(65 + col_idx + 1)
                 worksheet.set_column(f"{col_letter}:{col_letter}", 30, 
                                 workbook.add_format(workbook_format['savings_format']))
 
@@ -1175,7 +1175,7 @@ class CurBase(ReportBase, ABC):
                     l_name_of_worksheet = f'{worksheet_name} GroupBy'
                     chart.set_title({'name': l_name_of_worksheet})
                     chart.set_x_axis({'name': 'GroupBy'})
-                    chart.set_y_axis({'name': '{l_name_of_column} ($)', 'num_format': '$#,##0'})
+                    chart.set_y_axis({'name': f'{l_name_of_column} ($)', 'num_format': '$#,##0'})
 
                     # Insert the chart into the worksheet
                     chart_sheet.insert_chart('D2', chart, {'x_scale': 2, 'y_scale': 1.5})

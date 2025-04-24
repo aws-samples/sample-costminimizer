@@ -78,8 +78,8 @@ class CurGravitonrdssavings(CurBase):
             'Graviton Instance Unit Cost',
             'current_cost',
             'Amortized_cost',
-            'potential_savings',
-            'savings'
+            self.ESTIMATED_SAVINGS_CAPTION,
+            'savings_%'
         ]
 
     def get_expected_column_headers(self) -> list:
@@ -96,15 +96,15 @@ class CurGravitonrdssavings(CurBase):
             'Graviton Instance Unit Cost',
             'Current Cost',
             'Amortized Cost',
-            'Potential Savings',
+            self.ESTIMATED_SAVINGS_CAPTION,
             'Savings %'
         ]
 
     def disable_report(self) -> bool:
         return False
 
-    def _set_recommendation(self):
-        self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend. No estimated savings recommendation is provided by this report.  Query provides account information useful for cost optimization.'''
+    def display_in_menu(self) -> bool:
+        return True
 
     def count_rows(self) -> int:
         try:
@@ -113,21 +113,11 @@ class CurGravitonrdssavings(CurBase):
             print(f"Error in counting rows in report_result: {str(e)}")
             return 0
 
+    def _set_recommendation(self):
+        self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend. The estimated savings are the difference between the cost of actual running instances and they were migrated to graviton but using ON DEMAND pricing.'''
+
     def get_estimated_savings(self, sum=True) -> float:
-        """
-        Calculate and return the estimated savings from addressing idle NAT Gateways.
-        
-        This method first sets the recommendation based on the analysis results,
-        then calculates the potential savings if the identified idle NAT Gateways are addressed.
-        
-        Args:
-            sum (bool): If True, return the total savings. If False, return savings per resource.
-        
-        Returns:
-            float: The estimated savings in cost
-        """
         self._set_recommendation()
-		
         return self.set_estimate_savings(True)
 
     def set_estimate_savings(self, sum=False) -> float:
@@ -150,9 +140,6 @@ class CurGravitonrdssavings(CurBase):
         else:
             return 0.0
 
-    def display_in_menu(self) -> bool:
-        return True
-
     def calculate_savings(self):
         """Calculate potential savings from RDS Graviton migration."""
         if self.report_result[0]['DisplayPotentialSavings'] is False:
@@ -164,7 +151,7 @@ class CurGravitonrdssavings(CurBase):
 
             total_savings = 0.0
             for _, row in query_results.iterrows():
-                potential_savings = float(row['potential_savings'])
+                potential_savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
 
                 total_savings += potential_savings
 
@@ -366,23 +353,23 @@ current_cost > 0"""
         self.chart_type_of_excel = 'pivot'
         return self.chart_type_of_excel
 
-    # return range definition of the categories in the excel graph
+    # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
     def get_range_categories(self):
         # X1,Y1 to X2,Y2
         return 1, 1, 2, -1
 
-    # return range definition of the values in the excel graph
+    # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # X1,Y1 to X2,Y2
         return 12,1,12,-1
 
-    # return list of columns values in the excel graph
+    # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [Col1, ..., ColN]
         # 0   account_id as "Account ID",
         return [9,10,11,12,13]
 
-    # return column to group by in the excel graph
+    # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
         return [1,2]

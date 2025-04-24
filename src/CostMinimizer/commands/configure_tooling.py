@@ -617,7 +617,7 @@ class ConfigureToolingCommand:
             self.appConfig.console.print("[red]Failed to retrieve account ID automatically.[/red]")
         else:
 
-            self.appConfig.console.print(f"[green]Using account number: {config['aws_cow_account'][:-2]}XX[/green]")
+            self.appConfig.console.print(f"[green]Using account number: {config['aws_cow_account']}[/green]")
 
             validated_account = self.validate_cow_configuration(customer_name='aws_cow_account')
 
