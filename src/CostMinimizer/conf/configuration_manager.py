@@ -10,7 +10,7 @@ from ..config.database import ToolingDatabase
 class ConfigurationManager:
     """Manages application configuration and setup"""
     def __init__(self):
-        self._setup_configs()
+        self._setup_configs() #instantiate Config class and run setup method
         self._setup_logging()
         self._setup_database()
 
@@ -41,7 +41,7 @@ class ConfigurationManager:
 
     #TODO database init should probably not happen in the configuration manager
     def _setup_database(self) -> None:
-        self.appConfig.database = ToolingDatabase(self.appConfig)
+        self.appConfig.database = ToolingDatabase()
 
         # in case the API interfaces are not accessible to get the ec2 instances prices 
         self.appConfig.database.insert_awspricingec2()

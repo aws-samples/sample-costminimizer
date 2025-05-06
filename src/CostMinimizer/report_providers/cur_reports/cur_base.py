@@ -227,7 +227,7 @@ class AWSSnapshots(RegionConversion):
             return size_info
             
         except ClientError as e:
-            self.logger.info(f"Error getting snapshot information: {str(e)}")
+            self.logger.warning(f"Error getting snapshot information: {str(e)}")
             return None
 
     def print_snapshot_size_info(self, size_info):
@@ -414,62 +414,97 @@ class AWSPricing():
         Get the price for a Lambda function.
 
         Args:
-            region (str): AWS region (e.g., 'us-east-1')
+            region (str or tuple): AWS region (e.g., 'us-east-1') or tuple of possible region names
             usage_type (str): Usage type (e.g., 'Lambda-GB-Second')
 
         Returns:
             dict: Price information including on-demand pricing
         """
 
-        # Check cache first
-        cache_key = f"{region}:{usage_type}"
+        # Convert single region to tuple for consistent handling
+        if isinstance(region, str):
+            region_values = (region,)
+        else:
+            region_values = region
+
+        # Create cache key from all possible region values
+        cache_key = f"{'-'.join(region_values)}:{usage_type}"
         if cache_key in self._price_cache:
             return self._price_cache[cache_key]
 
         try:
-            # Get On-Demand pricing
+            # Start with the usage type filter
             filters = [
-                {'Type': 'TERM_MATCH', 'Field': 'location', 'Value': region},
                 {'Type': 'TERM_MATCH', 'Field': 'usagetype', 'Value': usage_type},
             ]
 
-            response = self.pricing_client.get_products(
-                ServiceCode='AWSLambda',
-                Filters=filters
-            )
-
-            price_data = {
-                'on_demand': None,
-                'region': region,
-                'usage_type': usage_type
-            }
-
-            # Parse On-Demand price
-            for price_str in response['PriceList']:
-                price_details = json.loads(price_str)
-                terms = price_details.get('terms', {})
-                on_demand_terms = terms.get('OnDemand', {})
-
-                if on_demand_terms:
-                    # Get the first price dimension
-                    for term_key in on_demand_terms:
-                        price_dimensions = on_demand_terms[term_key]['priceDimensions']
-                        for dimension in price_dimensions.values():
-                            price_data['on_demand'] = {
-                                'price_per_unit': float(dimension['pricePerUnit']['USD']),
-                                'description': dimension['description'],
-                                'unit': dimension['unit']
-                            }
-                            break
-                        break
-
-            # Cache the results
-            self._price_cache[cache_key] = price_data
-            return price_data
-
+            # For location, we need to use a different approach since AWS Pricing API doesn't support OR conditions directly
+            # We'll make separate API calls for each region and combine the results
+            all_products = []
+            
+            for region_name in region_values:
+                region_filter = filters + [{'Type': 'TERM_MATCH', 'Field': 'location', 'Value': region_name}]
+                
+                response = self.pricing_client.get_products(
+                    ServiceCode='AWSLambda',
+                    Filters=region_filter
+                )
+                
+                all_products.extend(response.get('PriceList', []))
+                
+            # If we didn't find any products, try one more time with all filters
+            if not all_products:
+                response = self.pricing_client.get_products(
+                    ServiceCode='AWSLambda',
+                    Filters=filters
+                )
+                all_products = response.get('PriceList', [])
+                
+            # Process the combined results
+            result = self._process_lambda_pricing(all_products)
+            
+            # Cache the result
+            self._price_cache[cache_key] = result
+            return result
+            
         except Exception as e:
-            self.logger.warning(f"Fetching Lambda price for {usage_type}: {str(e)}")
-            raise e
+            self.logger.warning(f"Error getting Lambda price for {region_values}, {usage_type}: {e}")
+            return None
+            
+    def _process_lambda_pricing(self, price_list):
+        """
+        Process Lambda pricing information from the price list.
+        
+        Args:
+            price_list (list): List of price information from AWS Pricing API
+            
+        Returns:
+            dict: Processed pricing information
+        """
+        if not price_list:
+            return None
+            
+        # Process the pricing information
+        # This is a simplified example - you may need to adjust based on your needs
+        for price_str in price_list:
+            try:
+                price_data = json.loads(price_str)
+                on_demand = price_data.get('terms', {}).get('OnDemand', {})
+                if on_demand:
+                    # Get the first price dimension
+                    dimension_key = list(list(on_demand.values())[0]['priceDimensions'].keys())[0]
+                    price_dimension = list(on_demand.values())[0]['priceDimensions'][dimension_key]
+                    
+                    return {
+                        'pricePerUnit': price_dimension.get('pricePerUnit', {}).get('USD', '0'),
+                        'description': price_dimension.get('description', ''),
+                        'effectiveDate': list(on_demand.values())[0].get('effectiveDate', ''),
+                        'unit': price_dimension.get('unit', '')
+                    }
+            except Exception as e:
+                self.logger.error(f"Error processing Lambda price: {e}")
+                
+        return None
 
     def get_savings_plan_rates(self, instance_type: str, region: str = None) -> Optional[Dict]:
         """
@@ -1147,7 +1182,7 @@ class CurBase(ReportBase, ABC):
 
                 if not pivot_data.empty:
                     # Create a new worksheet for the chart
-                    l_name_of_worksheet = f'{worksheet_name[:31-len('-GroupBy')]}-GroupBy'
+                    l_name_of_worksheet = f"{worksheet_name[:31-len('-GroupBy')]}-GroupBy"
                     l_name_of_worksheet = l_name_of_worksheet[:31]
                     chart_sheet = workbook.add_worksheet(l_name_of_worksheet)
 

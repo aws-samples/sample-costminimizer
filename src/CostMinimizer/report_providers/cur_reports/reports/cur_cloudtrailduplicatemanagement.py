@@ -91,7 +91,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -109,6 +109,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
@@ -162,7 +163,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
                 data_list.append(data_dict)
 
             df = pd.DataFrame(data_list)
-            self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':False})
+            self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
     def get_required_columns(self) -> list:
@@ -226,9 +227,9 @@ group by 1,2;"""
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
-        return [3,4]
+        return [2,3]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
-        return [2]
+        return [1]

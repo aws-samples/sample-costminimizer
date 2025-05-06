@@ -132,8 +132,9 @@ class CoReports(ReportProviderBase):
 
         def run_query(report_object, display = False, report_name = ''):
             try:
-
-                report_object.sql( self.client, region = self.regions, account = self.accounts, display = False, report_name = '')
+                region = self.regions
+                account = self.accounts
+                report_object.sql( self.client, region, account, display = display, report_name = report_name)
 
                 Name= self.long_name()
 

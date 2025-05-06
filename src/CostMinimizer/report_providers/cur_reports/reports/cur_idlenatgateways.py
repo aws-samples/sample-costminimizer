@@ -114,20 +114,23 @@ class CurIdlenatgateways(CurBase):
             pandas.DataFrame: The report dataframe containing savings information.
         """
         """Calculate potential savings ."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:        
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:        
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                savings = float(row['cost'])
-                total_savings += savings
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
+                    total_savings += savings
 
-            self._savings = total_savings
-            return total_savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def count_rows(self) -> int:
         """
@@ -162,6 +165,7 @@ class CurIdlenatgateways(CurBase):
 
         # Get the query execution ID
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         # Wait for the query to complete
         while True:
@@ -212,9 +216,10 @@ class CurIdlenatgateways(CurBase):
                 data_dict = {
                     self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
                     self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0,
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0, 
-                    self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0, 
+                    self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -226,6 +231,7 @@ class CurIdlenatgateways(CurBase):
         return [
                     'resource_id',
                     'usage_type',
+                    'region',
                     'usage',
                     'cost',
                     self.ESTIMATED_SAVINGS_CAPTION
@@ -239,6 +245,7 @@ class CurIdlenatgateways(CurBase):
         l_SQL = f"""SELECT 
 line_item_resource_id, 
 line_item_usage_type, 
+product_from_location,
 SUM(line_item_usage_amount) as USAGE, 
 SUM(line_item_unblended_cost) as COST 
 FROM {fqdb_name} 
@@ -247,7 +254,7 @@ WHERE
 line_item_line_item_type = 'Usage' 
 AND line_item_resource_id LIKE '%:natgateway/nat-%' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY 1,2"""
+GROUP BY 1,2,3"""
 
         #strip newlines 
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
@@ -268,7 +275,7 @@ GROUP BY 1,2"""
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
-        return 4, 1, 4, -1
+        return 5, 1, 5, -1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
@@ -278,4 +285,4 @@ GROUP BY 1,2"""
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
-        return [1]
+        return [1,2]

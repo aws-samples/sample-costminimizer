@@ -182,7 +182,7 @@ class Authentication:
             self.create_cow_awscli_config(config_filename)
 
             #get all customer profiles from database
-            cow_database = ToolingDatabase(self.config)
+            cow_database = ToolingDatabase()
             customers = cow_database.get_all_customers()
 
             #write customer profiles

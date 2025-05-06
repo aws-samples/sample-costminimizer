@@ -72,26 +72,29 @@ class CurNatgatewayusage(CurBase):
 
     def calculate_savings(self):
         """Calculate potential savings ."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:        
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:        
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
-                total_savings += savings
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
+                    total_savings += savings
 
-            self._savings = total_savings
-            return total_savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def count_rows(self) -> int:
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -109,6 +112,7 @@ class CurNatgatewayusage(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
@@ -156,9 +160,10 @@ class CurNatgatewayusage(CurBase):
                 data_dict = {
                     self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
                     self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0,
-                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0, 
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0, 
+                    self.get_required_columns()[5]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -171,6 +176,7 @@ class CurNatgatewayusage(CurBase):
                     'resource_id', 
                     'account', 
                     'usage_type', 
+                    'region',
                     'usage', 
                     'cost'
                     #self.ESTIMATED_SAVINGS_CAPTION
@@ -186,6 +192,7 @@ class CurNatgatewayusage(CurBase):
 DISTINCT line_item_resource_id as resource_id, 
 line_item_usage_account_id as account, 
 line_item_usage_type, 
+product_from_location,
 SUM(line_item_usage_amount) as "usage", 
 SUM(line_item_unblended_cost) as "cost" 
 FROM 
@@ -195,7 +202,7 @@ WHERE
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 AND line_item_line_item_type = 'Usage' 
 AND line_item_resource_id LIKE '%:natgateway/nat-%' 
-GROUP BY 1,2,3"""
+GROUP BY 1,2,3,4"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
         # for each unique combination of account, resource, and usage type. This gives us the
@@ -227,14 +234,14 @@ GROUP BY 1,2,3"""
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
-        return 4, 1, 4, -1
+        return 5, 1, 5, -1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [Col1, ..., ColN]
-        return [4]
+        return [5]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
-        return [2]
+        return [2,3]

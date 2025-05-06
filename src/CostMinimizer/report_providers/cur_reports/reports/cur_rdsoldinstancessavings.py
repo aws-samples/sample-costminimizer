@@ -28,7 +28,7 @@ class CurRdsoldinstancessavings(CurBase):
         return "Cost & Usage Report"
 
     def domain_name(self):
-        return 'STORAGE'
+        return 'DATABASE'
 
     def description(self):
         return "Identifies potential cost savings from upgrading older RDS instances"
@@ -72,26 +72,29 @@ class CurRdsoldinstancessavings(CurBase):
 
     def calculate_savings(self):
         """Calculate potential savings ."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:        
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:        
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                savings = float(row['cost'])
-                total_savings += savings
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
+                    total_savings += savings
 
-            self._savings = total_savings
-            return total_savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def count_rows(self) -> int:
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -109,6 +112,7 @@ class CurRdsoldinstancessavings(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)

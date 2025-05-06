@@ -11,7 +11,11 @@ import ast
 import pandas as pd
 import re
 import logging
-
+# import Config for boto3 session client()
+from botocore.config import Config
+import json
+import ast
+from typing import List, Dict, Any, Optional
 
 DEFAULT_gen_ai_model = 'anthropic.claude-3-5-sonnet-20240620-v1:0' # 'anthropic.claude-3-7-sonnet-20250219-v1:0' # 
 
@@ -63,7 +67,6 @@ class ReportOutputGenAi():
 
     def _generate_ai_data_question(self, app, input_text, file_binary = None, file_format = 'xlsx', filename = f'{__tooling_name__}-report-analysis') -> list:
 
-
         # only then file_binary if the parameter is not None
         if file_binary is not None:
             messages=[{'role': 'user','content': [{'text':input_text},{'document': {'format': file_format,'name': filename, 'source': {'bytes': file_binary }}}]}]   
@@ -99,6 +102,103 @@ class ReportOutputGenAi():
         else:
             return []     
 
+    def parse_dict_list_from_text(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        Discovers and parses a list of dictionaries from a string text.
+        
+        This function attempts multiple parsing strategies to extract a list of dictionaries
+        from text that contains JSON-like structures in the format [ { ... } ].
+        
+        Args:
+            text (str): The input text containing a list of dictionaries.
+            
+        Returns:
+            Optional[List[Dict[str, Any]]]: The parsed list of dictionaries if successful, None otherwise.
+            
+        Example:
+            >>> text = 'Some text before [{"key1": "value1"}, {"key2": "value2"}] and text after'
+            >>> result = parse_dict_list_from_text(text)
+            >>> print(result)
+            [{'key1': 'value1'}, {'key2': 'value2'}]
+        """
+        if not text:
+            return None
+        
+        # Try direct JSON parsing first (for clean JSON)
+        try:
+            # Check if the entire text is a valid JSON list
+            result = json.loads(text)
+            if isinstance(result, list) and all(isinstance(item, dict) for item in result):
+                return result
+        except json.JSONDecodeError:
+            pass
+        
+        # Try using ast.literal_eval for Python literal structures
+        try:
+            # Find text that looks like a list of dictionaries using regex
+            list_pattern = r'\[\s*\{.*?\}\s*(?:,\s*\{.*?\}\s*)*\]'
+            matches = re.findall(list_pattern, text, re.DOTALL)
+            
+            if matches:
+                for match in matches:
+                    try:
+                        result = ast.literal_eval(match)
+                        if isinstance(result, list) and all(isinstance(item, dict) for item in result):
+                            return result
+                    except (SyntaxError, ValueError):
+                        continue
+        except Exception:
+            pass
+        
+        # Try more aggressive regex pattern to extract individual dictionaries
+        try:
+            dict_pattern = r'\{\s*"[^"]+"\s*:\s*"[^"]*"(?:\s*,\s*"[^"]+"\s*:\s*"[^"]*")*\s*\}'
+            matches = re.findall(dict_pattern, text)
+            
+            if matches:
+                result = []
+                for match in matches:
+                    try:
+                        dict_obj = json.loads(match)
+                        if isinstance(dict_obj, dict):
+                            result.append(dict_obj)
+                    except json.JSONDecodeError:
+                        try:
+                            dict_obj = ast.literal_eval(match)
+                            if isinstance(dict_obj, dict):
+                                result.append(dict_obj)
+                        except (SyntaxError, ValueError):
+                            continue
+                
+                if result:
+                    return result
+        except Exception:
+            pass
+        
+        # If all else fails, try to find anything that looks like a dictionary
+        try:
+            # This pattern matches individual dictionaries with quoted keys and values
+            dict_pattern = r'\{\s*(?:"[^"]+"\s*:\s*"[^"]*"(?:\s*,\s*"[^"]+"\s*:\s*"[^"]*")*)?\s*\}'
+            matches = re.findall(dict_pattern, text)
+            
+            if matches:
+                result = []
+                for match in matches:
+                    try:
+                        # Add square brackets to make it a list for parsing
+                        list_text = f"[{match}]"
+                        parsed = json.loads(list_text)
+                        if isinstance(parsed, list) and len(parsed) > 0:
+                            result.extend(parsed)
+                    except json.JSONDecodeError:
+                        continue
+                
+                if result:
+                    return result
+        except Exception:
+            pass
+        
+        return None
 
     def _generate_ai_data(self, app, file_binary, input_text, file_format, filename = f'{__tooling_name__}-report-analysis') -> list:
         # Increase the read timeout to 300 seconds (5 minutes)
@@ -142,7 +242,8 @@ class ReportOutputGenAi():
         bedrock_response = []
 
         for message in response['output']['message']['content']:
-            bedrock_response.append( message['text'])
+            list_message = self.parse_dict_list_from_text( message['text'])
+            bedrock_response.append( list_message)
             break
 
         if type(bedrock_response) is str:

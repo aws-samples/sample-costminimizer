@@ -110,7 +110,7 @@ class CurGravitonrdssavings(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def _set_recommendation(self):
@@ -142,24 +142,24 @@ class CurGravitonrdssavings(CurBase):
 
     def calculate_savings(self):
         """Calculate potential savings from RDS Graviton migration."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                potential_savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    potential_savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
 
-                total_savings += potential_savings
+                    total_savings += potential_savings
 
-            self._savings = total_savings
-            return total_savings
-
-    def get_estimated_savings(self, sum=False) -> float:
-        return self._savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
         try:
@@ -176,6 +176,7 @@ class CurGravitonrdssavings(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
@@ -361,7 +362,7 @@ current_cost > 0"""
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # X1,Y1 to X2,Y2
-        return 12,1,12,-1
+        return 11,1,11,-1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):

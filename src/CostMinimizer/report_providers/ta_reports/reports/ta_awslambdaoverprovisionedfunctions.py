@@ -67,23 +67,20 @@ class TaAwslambdaoverprovisionedfunctions(TaBase):
 
     def calculate_savings(self):
         df = self.get_report_dataframe()
-		
-		#nothing to calculate for this check we just sum up the column
-        return df
+        try:
+            if (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
+                return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
+            else:
+                return 0.0
+        except:
+            return 0.0
 
     def count_rows(self) -> int:
-        '''Return the number of rows found in the dataframe'''
         try:
-            df = self.get_report_dataframe()
-            return len(df)
-        except:
+            return self.report_result[0]['Data'].shape[0]
+        except Exception as e:
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
-	
-    def calculate_savings(self):
-        df = self.get_report_dataframe()
-		
-		#nothing to calculate for this check we just sum up the column 'ebs_gp3_potential_savings'
-        return df
 
     def addTaReport(self, client, Name, CheckId, Display = True):
         type = 'table'
@@ -129,4 +126,4 @@ class TaAwslambdaoverprovisionedfunctions(TaBase):
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
-        return 10, 1, 10, -1
+        return 4, 1, 4, -1

@@ -66,15 +66,19 @@ class TaLambdafunctionshigherrorrates(TaBase):
 
     def calculate_savings(self):
         df = self.get_report_dataframe()
-        
-        #nothing to calculate for this check we just sum up the column
-        return df
+        try:
+            if (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
+                return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
+            else:
+                return 0.0
+        except:
+            return 0.0
 
     def count_rows(self) -> int:
-        '''Return the number of rows found in the dataframe'''
         try:
-            return self.calculate_savings().shape[0]
-        except:
+            return self.report_result[0]['Data'].shape[0]
+        except Exception as e:
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def addTaReport(self, client, Name, CheckId, Display = True):

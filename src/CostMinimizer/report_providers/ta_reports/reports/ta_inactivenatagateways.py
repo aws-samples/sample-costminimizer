@@ -62,18 +62,27 @@ class TaInactivenatagateways(TaBase):
     def _set_recommendation(self):
         self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend. No estimated savings recommendation is provided by this report.  Query provides account information useful for cost optimization.'''
 
-    def calculate_savings(self):
+    def calculate_savings_1_inactive_gw(self):
         estimated_cost_unassigned_ip = 0.045 * 24 * 30
 		
 		#nothing to calculate for this check we just sum up the column
         return estimated_cost_unassigned_ip
 
-    def count_rows(self) -> int:
-        '''Return the number of rows found in the dataframe'''
+    def calculate_savings(self):
+        df = self.get_report_dataframe()
         try:
-            df = self.get_report_dataframe()
-            return len(df)
+            if (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
+                return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
+            else:
+                return 0.0
         except:
+            return 0.0
+
+    def count_rows(self) -> int:
+        try:
+            return self.report_result[0]['Data'].shape[0]
+        except Exception as e:
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def addTaReport(self, client, Name, CheckId, Display = True):
@@ -95,7 +104,7 @@ class TaInactivenatagateways(TaBase):
                     self.get_required_columns()[1]: resource['metadata'][1],
                     self.get_required_columns()[2]: resource['metadata'][2],
                     self.get_required_columns()[3]: resource['metadata'][3],
-                    self.get_required_columns()[4]: self.calculate_savings()
+                    self.get_required_columns()[4]: self.calculate_savings_1_inactive_gw()
                     }
 
                 data_list.append(data_dict)

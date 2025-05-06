@@ -78,8 +78,8 @@ class Config(Singleton):
     def setup(cls):
         '''setup the cow database and user configuration'''
         try:
-            if os.getenv('APP_COW_USER_HOME_DIR'):
-                cls.container_host_system_home = Path(os.getenv('APP_COW_USER_HOME_DIR'))
+            if os.getenv('APP_CM_USER_HOME_DIR'):
+                cls.container_host_system_home = Path(os.getenv('APP_CM_USER_HOME_DIR'))
             else:
                 cls.container_host_system_home = cls.local_home
             
@@ -182,7 +182,7 @@ internals:
     
     def _setup_database(cls, config):
         """Create database and all tables if needed"""
-        cls.database = ToolingDatabase(cls)
+        cls.database = ToolingDatabase()
 
         #process table schema updates
         cls.database.process_table_schema_updates()

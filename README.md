@@ -70,7 +70,7 @@ aws sts get-caller-identity        # CostMinimizer is using the AWS credentials 
 
 (optional: you can automaticaly register the existing credentials as the default admin one of the tooling:
 costminimizer --configure --auto-update-conf
-Therefore reports will be saved into C:\Users\$USERNAME$\cow\$ACCOUNTID_CREDENTIALS$-2025-04-04-09-46\
+Therefore reports will be saved into C:\Users\$USERNAME$\cow\$ACCOUNTID_CREDENTIALS\$ACCOUNTID_CREDENTIALS-2025-04-04-09-46\
 )
 
 2. List all options for the tooling:
@@ -84,7 +84,7 @@ CostMinimizer -r --ce --cur    # Generates AI recommendations based on report da
 
 5. Ask genAI a question about the cost report:
 CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, 
-what is the cost of my AWS service for the year 2024 for the account nammed slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000-2025-04-04-09-46\CostMinimizer.xlsx"
+what is the cost of my AWS service for the year 2024 for the account nammed slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000\000538328000-2025-04-04-09-46\CostMinimizer.xlsx"
 ```
 
 ### Operation Modes
@@ -123,12 +123,17 @@ CostMinimizer --ce --ta --co --cur -s user@example.com
 # Generate CUR graviton reports for a specific CUR database and table (here AWS account 000065822619 for 2025 02)
 CostMinimizer --cur --cur --cur-db customer_cur_data --cur-table cur_000065822619_202502 --checks cur_gravitoneccsavings cur_gravitonrdssavings cur_lambdaarmsavings --region us-east-1
 
+
+**Note on Region Selection:**
+- When using `--co` (Compute Optimizer) option, the application will prompt you to select a region.
+- When using `--ce` (Cost Explorer) or `--ta` (Trusted Advisor) or `--cur` (Cost & Usage Report) options, no region selection is required, and the default region (us-east-1) will be used.
+- You can bypass the region selection by specifying a region with the `--region` parameter.
 ```
 
 2. Ask questions about cost data:
 ```bash
 # Ask a specific question about costs
-CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account named slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000-2025-04-03-11-08\CostMinimizer.xlsx"
+CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account named slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000\000538328000-2025-04-03-11-08\CostMinimizer.xlsx"
 ```
 
 

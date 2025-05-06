@@ -92,7 +92,7 @@ class CurGravitoneccsavingsrough(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def get_estimated_savings(self, sum=True) -> float:
@@ -137,22 +137,25 @@ class CurGravitoneccsavingsrough(CurBase):
 
     def calculate_savings(self):
         """Calculate potential savings from Graviton migration."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                current_cost = float(row['current_cost'])
-                graviton_cost = float(row['graviton_cost'])
-                savings = current_cost - graviton_cost
-                total_savings += savings
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    current_cost = float(row['current_cost'])
+                    graviton_cost = float(row['graviton_cost'])
+                    savings = current_cost - graviton_cost
+                    total_savings += savings
 
-            self._savings = total_savings
-            return total_savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def get_estimated_savings(self, sum=False) -> float:
         return self._savings if sum else 0.0
@@ -172,6 +175,7 @@ class CurGravitoneccsavingsrough(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)

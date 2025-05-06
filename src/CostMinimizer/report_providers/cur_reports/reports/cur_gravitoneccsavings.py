@@ -22,6 +22,7 @@ class CurGravitoneccsavings(CurBase):
         self.pricing = AWSPricing(app)
 
         self.graviton_ratio_performance = .15  # Additional 10% ration price performance for graviton
+        self.including_resource_id = True      # include resoure ID of the instance in the results reports
 
     def get_report_parameters(self) -> dict:
         return {}
@@ -66,38 +67,74 @@ class CurGravitoneccsavings(CurBase):
         return 'cur'
 
     def get_required_columns(self) -> list:
-        return [
-            'usage_account_id',
-            'product_instance_type',
-            'graviton_instance_type',
-            'product_operating_system',
-            'availability_zone',
-            'product_tenancy',
-            'product_region',
-            'current_instance_unit_cost',
-            'graviton_instance_unit_cost',
-            'current_cost',
-            'amortized_cost',
-            self.ESTIMATED_SAVINGS_CAPTION,
-            'savings_%'
-        ]
+        if self.including_resource_id:
+            return [
+                'usage_account_id',
+                'resource_id',
+                'product_instance_type',
+                'graviton_instance_type',
+                'product_operating_system',
+                'availability_zone',
+                'product_tenancy',
+                'product_region',
+                'current_instance_unit_cost',
+                'graviton_instance_unit_cost',
+                'current_cost',
+                'amortized_cost',
+                self.ESTIMATED_SAVINGS_CAPTION,
+                'savings_%'
+            ]
+        else:
+            return [
+                'usage_account_id',
+                'product_instance_type',
+                'graviton_instance_type',
+                'product_operating_system',
+                'availability_zone',
+                'product_tenancy',
+                'product_region',
+                'current_instance_unit_cost',
+                'graviton_instance_unit_cost',
+                'current_cost',
+                'amortized_cost',
+                self.ESTIMATED_SAVINGS_CAPTION,
+                'savings_%'
+            ]
 
     def get_expected_column_headers(self) -> list:
-        return [
-            'Account ID',
-            'Current Instance Type',
-            'Graviton Instance Type',
-            'OS Type',
-            'AZ',
-            'Tenancy',
-            'Region',
-            'Current Instance Unit Cost',
-            'Graviton Instance Unit Cost',
-            'Current Cost',
-            'Amortized Cost',
-            'Potential Savings',
-            'Savings %'
-        ]
+        if self.including_resource_id:
+            return [
+                'Account ID',
+                'Resource ID',
+                'Current Instance Type',
+                'Graviton Instance Type',
+                'OS Type',
+                'AZ',
+                'Tenancy',
+                'Region',
+                'Current Instance Unit Cost',
+                'Graviton Instance Unit Cost',
+                'Current Cost',
+                'Amortized Cost',
+                'Potential Savings',
+                'Savings %'
+            ]
+        else:
+            return [
+                'Account ID',
+                'Current Instance Type',
+                'Graviton Instance Type',
+                'OS Type',
+                'AZ',
+                'Tenancy',
+                'Region',
+                'Current Instance Unit Cost',
+                'Graviton Instance Unit Cost',
+                'Current Cost',
+                'Amortized Cost',
+                'Potential Savings',
+                'Savings %'
+            ]
     
     def disable_report(self) -> bool:
         return False
@@ -109,7 +146,7 @@ class CurGravitoneccsavings(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def _set_recommendation(self):
@@ -141,21 +178,24 @@ class CurGravitoneccsavings(CurBase):
 
     def calculate_savings(self):
         """Calculate potential savings from Graviton migration."""
-        if self.report_result[0]['DisplayPotentialSavings'] is False:
-            return 0.0
-        else:
-            query_results = self.get_query_result()
-            if query_results is None or query_results.empty:
+        try:
+            if self.report_result[0]['DisplayPotentialSavings'] is False:
                 return 0.0
+            else:
+                query_results = self.get_query_result()
+                if query_results is None or query_results.empty:
+                    return 0.0
 
-            total_savings = 0.0
-            for _, row in query_results.iterrows():
-                potential_savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
+                total_savings = 0.0
+                for _, row in query_results.iterrows():
+                    potential_savings = float(row[self.ESTIMATED_SAVINGS_CAPTION])
 
-                total_savings += potential_savings
+                    total_savings += potential_savings
 
-            self._savings = total_savings
-            return total_savings
+                self._savings = total_savings
+                return total_savings
+        except:
+            return 0.0
 
     def get_estimated_savings(self, sum=True) -> float:
         self._set_recommendation()
@@ -184,6 +224,7 @@ class CurGravitoneccsavings(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
@@ -229,15 +270,24 @@ class CurGravitoneccsavings(CurBase):
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):
+                if self.including_resource_id:
+                    current_cost = float(resource['Data'][7]['VarCharValue'])
+                    accountid = resource['Data'][0]['VarCharValue']
+                    instance_type = resource['Data'][2]['VarCharValue']
+                    family = resource['Data'][2]['VarCharValue'].split('.')[0]
+                    l_region = self.conversion.get_region_name(resource['Data'][6]['VarCharValue'] )
+                    l_operating_system = resource['Data'][3]['VarCharValue'] 
+                    l_tenancy = resource['Data'][5]['VarCharValue'] 
+                else:
+                    current_cost = float(resource['Data'][6]['VarCharValue'])
+                    accountid = resource['Data'][0]['VarCharValue']
+                    instance_type = resource['Data'][1]['VarCharValue']
+                    family = resource['Data'][1]['VarCharValue'].split('.')[0]
+                    l_region = self.conversion.get_region_name(resource['Data'][5]['VarCharValue'] )
+                    l_operating_system = resource['Data'][2]['VarCharValue'] 
+                    l_tenancy = resource['Data'][4]['VarCharValue'] 
 
-                current_cost = float(resource['Data'][6]['VarCharValue'])
                 region = 'us-east-1'
-                accountid = resource['Data'][0]['VarCharValue']
-                instance_type = resource['Data'][1]['VarCharValue']
-                family = resource['Data'][1]['VarCharValue'].split('.')[0]
-                l_region = self.conversion.get_region_name(resource['Data'][5]['VarCharValue'] )
-                l_operating_system = resource['Data'][2]['VarCharValue'] 
-                l_tenancy = resource['Data'][4]['VarCharValue'] 
                 l_pre_installed_software = ''
                 graviton_unit_price = -1
                 value_graviton_unit_price = -1
@@ -297,21 +347,39 @@ class CurGravitoneccsavings(CurBase):
                     ratio = 1
                 savings = current_cost - (current_cost * ratio)
 
-                data_dict = {
-                    self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',   # line_item_usage_account_id
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',   # product_instance_type
-                    self.get_required_columns()[2]: graviton_equiv,                                                                         # graviton_instance_type
-                    self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',   # product_operating_system
-                    self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',   # line_item_availability_zone
-                    self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else '',   # product_tenancy
-                    self.get_required_columns()[6]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else '',   # product_region
-                    self.get_required_columns()[7]: value_current_unit_price,                                                               # current_instance_unit_cost
-                    self.get_required_columns()[8]: value_graviton_unit_price,                                                              # graviton_instance_unit_cost
-                    self.get_required_columns()[9]: current_cost,                                                                           # current_cost
-                    self.get_required_columns()[10]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else 0.0, # amortized_cost
-                    self.get_required_columns()[11]: savings,                                                                               # potential_savings
-                    self.get_required_columns()[12]: (1-ratio)                                                                              # ration %
-                }
+                if self.including_resource_id:
+                    data_dict = {
+                        self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',   # line_item_usage_account_id
+                        self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',   # line_item_resource_id
+                        self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',   # product_instance_type
+                        self.get_required_columns()[3]: graviton_equiv,                                                                         # graviton_instance_type
+                        self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',   # product_operating_system
+                        self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else '',   # line_item_availability_zone
+                        self.get_required_columns()[6]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else '',   # product_tenancy
+                        self.get_required_columns()[7]: resource['Data'][6]['VarCharValue'] if 'VarCharValue' in resource['Data'][6] else '',   # product_region
+                        self.get_required_columns()[8]: value_current_unit_price,                                                               # current_instance_unit_cost
+                        self.get_required_columns()[9]: value_graviton_unit_price,                                                              # graviton_instance_unit_cost
+                        self.get_required_columns()[10]: current_cost,                                                                           # current_cost
+                        self.get_required_columns()[11]: resource['Data'][8]['VarCharValue'] if 'VarCharValue' in resource['Data'][8] else 0.0, # amortized_cost
+                        self.get_required_columns()[12]: savings,                                                                               # potential_savings
+                        self.get_required_columns()[13]: (1-ratio)                                                                              # ration %
+                    }
+                else:
+                    data_dict = {
+                        self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',   # line_item_usage_account_id
+                        self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',   # product_instance_type
+                        self.get_required_columns()[2]: graviton_equiv,                                                                         # graviton_instance_type
+                        self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',   # product_operating_system
+                        self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',   # line_item_availability_zone
+                        self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else '',   # product_tenancy
+                        self.get_required_columns()[6]: resource['Data'][5]['VarCharValue'] if 'VarCharValue' in resource['Data'][5] else '',   # product_region
+                        self.get_required_columns()[7]: value_current_unit_price,                                                               # current_instance_unit_cost
+                        self.get_required_columns()[8]: value_graviton_unit_price,                                                              # graviton_instance_unit_cost
+                        self.get_required_columns()[9]: current_cost,                                                                           # current_cost
+                        self.get_required_columns()[10]: resource['Data'][7]['VarCharValue'] if 'VarCharValue' in resource['Data'][7] else 0.0, # amortized_cost
+                        self.get_required_columns()[11]: savings,                                                                               # potential_savings
+                        self.get_required_columns()[12]: (1-ratio)                                                                              # ration %
+                    }
                 data_list.append(data_dict)
 
             df = pd.DataFrame(data_list)
@@ -331,8 +399,64 @@ class CurGravitoneccsavings(CurBase):
             l_SQL_tag_groupby = ''
 
         # This method needs to be implemented with the specific SQL query for aged EBS snapshots cost
-        # optional : line_item_resource_id as Resource_id,
-        l_SQL = f"""WITH ec2_usage AS ( 
+        # optional : line_item_resource_id as resource_id,
+        if self.including_resource_id:
+            l_SQL = f"""WITH ec2_usage AS ( 
+SELECT 
+line_item_usage_account_id as account_id, 
+line_item_resource_id as resource_id,
+product_instance_type as instance_type, 
+product_operating_system AS os, 
+line_item_availability_zone AS az, 
+product_tenancy as tenancy, 
+product_region as region, 
+SUM(line_item_unblended_cost) as current_cost, 
+SUM(CASE 
+WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_savings_plan_effective_cost 
+WHEN line_item_line_item_type = 'DiscountedUsage' THEN reservation_effective_cost 
+ELSE line_item_unblended_cost 
+END) AS amortized_cost, 
+SUM(line_item_usage_amount) as usage_amount 
+{l_SQL_tag_groupby} 
+FROM 
+{fqdb_name} 
+WHERE 
+{account_id} 
+line_item_product_code = 'AmazonEC2' 
+AND line_item_usage_type LIKE '%BoxUsage%' 
+AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage') 
+AND product_instance_type NOT LIKE '%.metal' 
+AND product_instance_type NOT LIKE 'a1.%' 
+AND product_instance_type NOT LIKE '%g.%' 
+AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
+GROUP BY 
+line_item_usage_account_id, 
+line_item_resource_id,
+product_instance_type, 
+product_operating_system, 
+line_item_availability_zone, 
+product_tenancy, 
+product_region 
+{l_SQL_tag_groupby} 
+) 
+SELECT 
+account_id as Account_ID, 
+resource_id as Resource_id,
+instance_type as Instance_Type, 
+os AS OS_type, 
+az AS AZ, 
+tenancy as Tenancy, 
+region as Region, 
+CAST(current_cost as decimal(16,2)) as Current_Cost, 
+CAST(amortized_cost as decimal(16,2)) as Amortized_Cost, 
+CAST(0 as decimal(16,2)) as USage_Amount 
+{l_SQL_tag_groupby} 
+FROM 
+ec2_usage 
+WHERE 
+current_cost > 0"""
+        else:
+            l_SQL = f"""WITH ec2_usage AS ( 
 SELECT 
 line_item_usage_account_id as account_id, 
 product_instance_type as instance_type, 
@@ -408,13 +532,19 @@ current_cost > 0"""
 
     # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
     def get_range_categories(self):
-        # X1,Y1 to X2,Y2
-        return 1, 1, 2, -1
+        # Col1,Lig1 to Col2,Lig2 (-1 all lines)
+        if self.including_resource_id:
+            return 1, 1, 3, -1
+        else:
+            return 1, 1, 2, -1
 
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
-        # X1,Y1 to X2,Y2
-        return 11,1,11,-1
+        # Col1,Lig1 to Col2,Lig2 (-1 all lines)
+        if self.including_resource_id:
+            return 12,1,12,-1
+        else:
+            return 11,1,11,-1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
@@ -425,9 +555,15 @@ current_cost > 0"""
         # 3   CAST(current_cost * 0.7 as decimal(16,2)) as "Graviton Cost",
         # 4   CAST(current_cost * 0.3 as decimal(16,2)) as "Potential Savings",
         # 5   CAST(30.0 as decimal(16,2)) as "Savings %"
-        return [7,8,9,10,11]
+        if self.including_resource_id:
+            return [8,9,10,11,12]
+        else:
+            return [7,8,9,10,11]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX]
-        return [2,1]
+        if self.including_resource_id:
+            return [2,0]
+        else:
+            return [2,1]

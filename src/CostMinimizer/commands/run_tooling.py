@@ -252,7 +252,6 @@ class RunToolingRun:
         self.output_folder = self.appConfig.report_output_directory
 
         cow_log = self.appConfig.report_directory / self.appConfig.internals['internals']['logging']['log_file']
-        #cow_log = self.output_folder / 'cow_log.log'
         dst_cow_log = report_directory / self.appConfig.internals['internals']['logging']['log_file']
         if not report_directory.is_dir():
             os.mkdir(report_directory.resolve())
@@ -292,19 +291,33 @@ class RunToolingRun:
 
     def display_regions_menu(self, selected_accounts, selected_regions) -> list:
         '''display regions menu; return region list'''
+        # If region is specified via command line, use it
         if self.appConfig.arguments_parsed.region:
+            self.logger.info(f"Using region specified via command line: {self.appConfig.arguments_parsed.region}")
             return [self.appConfig.arguments_parsed.region]
+        
+        # Check if --co option is used
+        requires_region_selection = (self.appConfig.arguments_parsed.co)
+        
+        # If --co is not used, skip region selection
+        if not requires_region_selection:
+            self.logger.info("Region selection skipped: --co option were not used")
+            # Use default region (us-east-1) for --ce or --ta options
+            return ["us-east-1"]
             
+        # If we need region selection and no regions are selected yet, show the menu
         if (selected_regions is None) or (len(selected_regions) == 0):
+            self.logger.info("Displaying region selection menu for --co options")
             menu_regions = ConfigureToolingCommand(self.appInstance).regions_menu(selected_accounts)
 
             selected_regions = []
             for region in menu_regions:
                 region_id = region.split(':')[0].strip()
-
                 selected_regions.append(region_id)
         else:
             selected_regions = selected_regions
+            
+        self.logger.info(f"Selected regions: {selected_regions}")
         return selected_regions
 
     def display_pptx_menu(self, selected_accounts):
@@ -483,7 +496,15 @@ class RunToolingRun:
 
             #display regions menu
             selected_regions = self.display_region_menu() # This version is a mono region release only
-            self.appConfig.selected_regions = self.display_regions_menu( selected_accounts, selected_regions)
+            
+            # Check if region selection is required (--co options)
+            requires_region_selection = (self.appConfig.arguments_parsed.co)
+            if requires_region_selection:
+                self.appConfig.console.print(f"\nRegion selection is required for --co (Compute Optimizer) option.")
+            else:
+                self.appConfig.console.print(f"\nRegion selection is not required for --ce, --ta, --cur options: Using default region: us-east-1")
+                
+            self.appConfig.selected_regions = self.display_regions_menu(selected_accounts, selected_regions)
 
             #build report contoller
             self.report_controller = self.report_controller_build( self.writer)

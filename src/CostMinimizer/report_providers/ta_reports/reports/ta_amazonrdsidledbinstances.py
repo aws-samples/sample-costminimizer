@@ -87,22 +87,17 @@ class TaAmazonrdsidledbinstances(TaBase):
 
 	def calculate_savings(self):
 		df = self.get_report_dataframe()
-		
-		#nothing to calculate for this check we just sum up the column
-		return df
-
-	def count_rows(self) -> int:
-		'''Return the number of rows found in the dataframe'''
 		try:
-			return self.calculate_savings().shape[0]
+			return df[self.ESTIMATED_SAVINGS_CAPTION].sum()
 		except:
 			return 0
-	
-	def calculate_savings(self):
-		df = self.get_report_dataframe()
-		
-		#nothing to calculate for this check we just sum up the column 'ebs_gp3_potential_savings'
-		return df
+
+	def count_rows(self) -> int:
+		try:
+			return self.report_result[0]['Data'].shape[0]
+		except Exception as e:
+			self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+			return 0
 
 	def enable_comparison(self) -> bool:
 		return False

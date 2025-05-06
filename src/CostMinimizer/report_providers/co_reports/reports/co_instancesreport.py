@@ -139,7 +139,7 @@ class CoInstancesreport(CoBase):
             'CSV_FILENAME' : self.name() + '.csv'
         }             
 
-    def sql(self, client, region, account, replace=True, query_type='sql_s_r', display = False, report_name = ''): #required - see abstract class
+    def sql(self, client, region, account, display = False, report_name = ''): #required - see abstract class
         type = 'chart' #other option table
         results = []
 
@@ -154,7 +154,7 @@ class CoInstancesreport(CoBase):
         ec2_client = boto3.client('ec2', region_name=region)
 
         if display:
-            display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+            display_msg = f'[green]Running Cost & Usage Report: {report_name} / {region}[/green]'
         else:
             display_msg = ''
         for recommendation in track(recommendation_list, description=display_msg):

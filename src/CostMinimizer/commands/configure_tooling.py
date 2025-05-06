@@ -286,7 +286,7 @@ class ConfigureToolingCommand:
         '''return list of regions'''
         regions =  self.appConfig.get_regions(selected_accounts=selected_accounts)
 
-        title = 'Select one of the region (no impact on global checks like TA, CO and CE)'
+        title = 'Select one of the region (no impact on global checks like TA, CUR and CE)'
         subtitle = '-'
         terminal_menu = launch_terminal_menu(regions, title=title, subtitle=subtitle, multi_select=False, show_multi_select_hint=True, show_search_hint=True)
         list_options = [terminal_menu[0]]

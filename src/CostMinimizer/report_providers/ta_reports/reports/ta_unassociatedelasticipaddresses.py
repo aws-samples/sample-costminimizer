@@ -60,17 +60,26 @@ class TaUnassociatedelasticipaddresses(TaBase):
         self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend. No estimated savings recommendation is provided by this report.  Query provides account information useful for cost optimization.'''
 
     def count_rows(self) -> int:
-        '''Return the number of rows found in the dataframe'''
         try:
-            df = self.get_report_dataframe()
-            return len(df)
-        except:
+            return self.report_result[0]['Data'].shape[0]
+        except Exception as e:
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 	
     def calculate_savings(self):
+        df = self.get_report_dataframe()
+        try:
+            if (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
+                return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
+            else:
+                return 0.0
+        except:
+            return 0.0
+
+    def calculate_savings_for_1_IP(self):
         # this is the cost of one unassigned elastic IP per month
         estimated_cost_unassigned_ip = 0.005 * 24 * 30
-		
+
         return estimated_cost_unassigned_ip
 
     def addTaReport(self, client, Name, CheckId, Display = True):
@@ -92,7 +101,7 @@ class TaUnassociatedelasticipaddresses(TaBase):
                     self.get_required_columns()[1]: resource['metadata'][0],
                     self.get_required_columns()[2]: resource['metadata'][1],
                     self.get_required_columns()[3]: resource['resourceId'],
-                    self.get_required_columns()[4]: self.calculate_savings()
+                    self.get_required_columns()[4]: self.calculate_savings_for_1_IP()
                     }
 
                 data_list.append(data_dict)                

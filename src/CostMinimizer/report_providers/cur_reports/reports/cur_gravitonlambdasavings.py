@@ -70,10 +70,12 @@ class CurGravitonlambdasavings(CurBase):
 
     def set_estimate_savings(self, sum=False) -> float:
         df = self.get_report_dataframe()
-
-        if sum and (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
-            return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
-        else:
+        try:
+            if sum and (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
+                return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
+            else:
+                return 0.0
+        except:
             return 0.0
 
     def _set_recommendation(self):
@@ -100,7 +102,7 @@ class CurGravitonlambdasavings(CurBase):
         try:
             return self.report_result[0]['Data'].shape[0]
         except Exception as e:
-            print(f"Error in counting rows in report_result: {str(e)}")
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -118,6 +120,7 @@ class CurGravitonlambdasavings(CurBase):
             raise e
 
         query_execution_id = response['QueryExecutionId']
+        self.query_id = query_execution_id
         
         while True:
             response = athena_client.get_query_execution(QueryExecutionId=query_execution_id)
@@ -348,7 +351,7 @@ GROUP BY 1,2,3,4,5,6,7;"""
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Y1, X1 to Y2, X2
-        return 12, 1, 12, -1
+        return 13, 1, 13, -1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):

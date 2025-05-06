@@ -9,13 +9,16 @@ from ..constants import __tooling_name__
 import logging
 import os
 import sqlite3
-from .customer import Customer
-from .report import Report
-from typing import List
-from ..config.database_updates import DatabaseUpdate
-from pathlib import Path
 import json
 import csv
+from typing import List
+#specific imports
+from pathlib import Path
+#application imports
+from .customer import Customer
+from .report import Report
+
+from ..config.database_updates import DatabaseUpdate
 
 class UnableToUpdateSQLValue(Exception):
     pass
@@ -31,9 +34,11 @@ class UnableToExecuteSqliteQuery(Exception):
 
 class ToolingDatabase:
 
-    def __init__(self, appConfig) -> None:
+    def __init__(self) -> None:
         '''class for interacting with the CostMinimizer database '''
-        self.appConfig = appConfig
+        # self.appConfig = appConfig
+        from ..config.config import Config
+        self.appConfig = self.appConfig = Config()
         self.logger = logging.getLogger(__name__)
         self.db = self.appConfig.internals['internals']['database']['database_file']
         if self.appConfig.installation_type in ('container_install'):
@@ -770,6 +775,7 @@ class ToolingDatabase:
             else:
                 unit_price = float(0)
             cursor.close()
+            self.logger.info(f"Unit Price for {instance_family} in region {region}: {unit_price}")
             return unit_price
         except Exception as e:
             self.logger.error(f"Database error: {str(e)}")
@@ -802,6 +808,7 @@ class ToolingDatabase:
             else:
                 unit_price = float(0)
             cursor.close()
+            self.logger.info(f"Unit Price for {instance_family} in region {region}: {unit_price}")
             return unit_price
         except Exception as e:
             self.logger.error(f"Database error: {str(e)}")
@@ -830,6 +837,7 @@ class ToolingDatabase:
             else:
                 unit_price = float(0)
             cursor.close()
+            self.logger.info(f"Unit Price for {usage_type} in region {region}: {unit_price}")
             return unit_price
         except Exception as e:
             self.logger.error(f"Database error: {str(e)}")

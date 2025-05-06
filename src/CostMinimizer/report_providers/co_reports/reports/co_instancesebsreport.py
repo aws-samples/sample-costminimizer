@@ -93,16 +93,16 @@ class CoInstancesebsreport(CoBase):
 
     def get_estimated_savings(self, sum=False) -> float:
         self._set_recommendation()
-        
+
         return self.set_estimate_savings()
 
     def set_estimate_savings(self, sum=False) -> float:
-        
+
         df = self.get_report_dataframe()
 
         if sum and (df is not None) and (not df.empty) and (self.ESTIMATED_SAVINGS_CAPTION in df.columns):
             return float(round(df[self.ESTIMATED_SAVINGS_CAPTION].astype(float).sum(), 2))
-        
+
         return 0.0
 
     def count_rows(self) -> int:
@@ -112,7 +112,7 @@ class CoInstancesebsreport(CoBase):
         except Exception as e:
             self.appConfig.console.print(f"Error in counting rows: {str(e)}")
             return 0
-    
+
     def calculate_savings(self):
         return 0.0
 
@@ -131,7 +131,7 @@ class CoInstancesebsreport(CoBase):
             'CSV_FILENAME' : self.name() + '.csv'
         }
 
-    def sql(self, client, region, account, replace=True, query_type='sql_s_r', display = False, report_name = ''): #required - see abstract class
+    def sql(self, client, region, account, display = False, report_name = ''): #required - see abstract class
         type = 'chart' #other option table
 
         # implement object of InstanceReport class
@@ -144,7 +144,7 @@ class CoInstancesebsreport(CoBase):
         # each dictionary contains information about an instance
         # such as instance ID, instance type, storage size, storage cost, and monthly cost
 
-        results = IR.list_ebs_instances_prices( (region, account), display, report_name)
+        results = IR.list_ebs_instances_prices( region=region, account=account, display=display, report_name=report_name)
         df = pd.DataFrame( results)
         self.report_result.append({'Name':self.name(),'Data':df, 'Type':type, 'DisplayPotentialSavings':False})
 

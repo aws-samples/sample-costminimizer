@@ -65,16 +65,14 @@ class TaWellarchitectedcostoptimizationhighrisk(TaBase):
         self.recommendation = f'''Returned {self.count_rows()} rows identifying high risk issues in the AWS Well-Architected Framework's cost optimization pillar'''
 
     def calculate_savings(self):
-        df = self.get_report_dataframe()
-        
         #nothing to calculate for this check we just sum up the column
-        return df
+        return 0
 
     def count_rows(self) -> int:
-        '''Return the number of rows found in the dataframe'''
         try:
-            return self.calculate_savings().shape[0]
-        except:
+            return self.report_result[0]['Data'].shape[0]
+        except Exception as e:
+            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
             return 0
 
     def addTaReport(self, client, Name, CheckId, Display = True):
