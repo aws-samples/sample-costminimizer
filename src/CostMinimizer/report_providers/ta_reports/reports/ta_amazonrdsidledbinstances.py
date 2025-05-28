@@ -94,7 +94,7 @@ class TaAmazonrdsidledbinstances(TaBase):
 
 	def count_rows(self) -> int:
 		try:
-			return self.report_result[0]['Data'].shape[0]
+			return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
 		except Exception as e:
 			self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
 			return 0

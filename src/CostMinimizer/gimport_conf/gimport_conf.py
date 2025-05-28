@@ -24,8 +24,8 @@ class CowImportConf:
 
     def __init__(self, appConfig) -> None:
         self.logger = logging.getLogger(__name__)
-        self.appConfig = appConfig
-        self.config = appConfig.config
+        from ..config.config import Config
+        self.appConfig = Config()
         self.app_path = Path(os.path.dirname(__file__))
         
         internals_file = self.app_path.parent / f'conf/{__tooling_name__}_internals.yaml'
@@ -36,7 +36,7 @@ class CowImportConf:
             self.appConfig.console.print(f'[orange]Unable to find {__tooling_name__}_internals file to determine version. Looking in {internals_file}')
 
         #determine if configuration exists in the db
-        if not self.appConfig.validate_database_configuration():
+        if not self.validate_database_configuration():
             self.logger.info(f'CostMinimizer configuration file does not exist.  Run "CostMinimizer --configure" and select option 1.')
             self.appConfig.console.print(f'[red]CostMinimizer configuration file does not exist.  Run "CostMinimizer --configure" and select option 1.')
             sys.exit()
@@ -59,7 +59,7 @@ class CowImportConf:
         try:
             
             configuration = yaml_data['aws_account']
-            self.insert_automated_configuration(configuration, 'costminimizer')
+            self.insert_automated_configuration(configuration)
             
             l_date_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -74,6 +74,18 @@ class CowImportConf:
             self.appConfig.console.print(f"[red]YAML dump file {l_dump_filename} exists but cannot be imported into database !")
             return
 
+    def validate_database_configuration(self) -> bool:
+        '''
+        Check if configuration exists in the database
+        '''
+        try:
+            # Check if cow_configuration table has any records
+            config = self.appConfig.database.get_cow_configuration()
+            return len(config) > 0
+        except Exception as e:
+            self.logger.error(f"Error validating database configuration: {e}")
+            return False
+            
     def insert_automated_configuration(self, configuration) -> None:
         '''
         insert automated configuration

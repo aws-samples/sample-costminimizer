@@ -93,9 +93,9 @@ class CurRdsauroraiooptimizedsavings(CurBase):
 
     def count_rows(self) -> int:
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
-            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+            self.appConfig.logger.warning(f"Error in {self.name()}: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -139,7 +139,7 @@ class CurRdsauroraiooptimizedsavings(CurBase):
         self.set_chart_type_of_excel()
 
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -153,7 +153,7 @@ class CurRdsauroraiooptimizedsavings(CurBase):
             print(f"No resources found for athena request {p_SQL}.")
         else:
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):
@@ -207,11 +207,11 @@ SUM((CASE
 WHEN ("line_item_line_item_type" = 'DiscountedUsage') THEN "reservation_effective_cost" 
 WHEN ("line_item_line_item_type" = 'RIFee') THEN ("reservation_unused_amortized_upfront_fee_for_billing_period" + "reservation_unused_recurring_fee") 
 WHEN (("line_item_line_item_type" = 'Fee') 
-AND ("reservation_reservation_a_r_n" <> '')) THEN 0 
+) THEN 0 
 ELSE "line_item_unblended_cost" 
 END)) "spend", 
 'compute' as type_spend 
-FROM {fqdb_name} , latest_date 
+FROM {fqdb_name} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -231,7 +231,7 @@ SPLIT_PART(line_item_resource_id, ':', 7) as "line_item_resource_id",
 line_item_product_code, 
 SUM(line_item_unblended_cost) AS "spend", 
 'storage' as type_spend 
-FROM {fqdb_name}  , latest_date 
+FROM {fqdb_name} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, {max_date}) AND {max_date} 
@@ -251,10 +251,10 @@ line_item_product_code,
 SUM(line_item_unblended_cost) as "spend", 
 'io' as type_spend 
 FROM 
-{fqdb_name}  , latest_date 
+{fqdb_name} 
 WHERE 
 {account_id} 
-AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
+line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 AND line_item_usage_type LIKE '%Aurora:StorageIOUsage' 
 AND line_item_line_item_type IN ('DiscountedUsage', 'Usage') 
 GROUP BY 

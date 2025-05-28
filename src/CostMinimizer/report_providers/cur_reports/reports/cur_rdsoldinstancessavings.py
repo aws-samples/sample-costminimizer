@@ -92,9 +92,9 @@ class CurRdsoldinstancessavings(CurBase):
 
     def count_rows(self) -> int:
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
-            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+            self.appConfig.logger.warning(f"Error in {self.name()}: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -139,7 +139,7 @@ class CurRdsoldinstancessavings(CurBase):
         self.set_chart_type_of_excel()
 
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -153,7 +153,7 @@ class CurRdsoldinstancessavings(CurBase):
             print(f"No resources found for athena request {p_SQL}.")
         else:
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):

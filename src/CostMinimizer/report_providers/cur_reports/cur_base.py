@@ -24,6 +24,8 @@ from pyathena.pandas.result_set import AthenaPandasResultSet
 
 from botocore.exceptions import ClientError
 
+from ...config.config import Config
+
 
 #####################################################################################################################################""
 class RegionConversion():
@@ -144,9 +146,10 @@ class RegionConversion():
 #####################################################################################################################################""
 class AWSSnapshots(RegionConversion):
     def __init__(self, app):
+        self.appConfig = Config()
         # Price List API is only available in us-east-1 or ap-south-1
-        self.ebs_client = boto3.client('ebs', region_name='us-east-1')
-        self.ec2_client = boto3.client('ec2', region_name='us-east-1')
+        self.ebs_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ebs', region_name=self.appConfig.default_selected_region)
+        self.ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.appConfig.default_selected_region)
 
         # Cache for pricing data to avoid repeated API calls
         self._price_cache = {}
@@ -166,8 +169,8 @@ class AWSSnapshots(RegionConversion):
         try:
 
             # define region to p_region for ec2_client
-            self.ec2_client = boto3.client('ec2', region_name=self.get_region_code(p_region))
-            self.ebs_client = boto3.client('ebs', region_name=self.get_region_code(p_region))
+            self.ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.get_region_code(p_region))
+            self.ebs_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ebs', region_name=self.get_region_code(p_region))
 
             # Get basic snapshot information
             response = self.ec2_client.describe_snapshots( SnapshotIds=[snapshot_id])
@@ -256,9 +259,10 @@ class AWSSnapshots(RegionConversion):
 #####################################################################################################################################""
 class AWSPricing():
     def __init__(self, app):
+        self.appConfig = Config()
         # Price List API is only available in us-east-1 or ap-south-1
-        self.pricing_client = boto3.client('pricing', region_name='us-east-1')
-        self.ec2_client = boto3.client('ec2', region_name='us-east-1')
+        self.pricing_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('pricing', region_name=self.appConfig.default_selected_region)
+        self.ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.appConfig.default_selected_region)
         
         # Cache for pricing data to avoid repeated API calls
         self._price_cache = {}
@@ -561,8 +565,10 @@ class AWSPricing():
 class InstanceConversionToGraviton(RegionConversion):
 
     def __init__(self, appInstance):
+        #ToDo remove appInstance
         # Link to database class
-        self.database = appInstance.database
+        self.appConfig = Config()
+        self.database = self.appConfig.database
 
     def get_graviton_equivalent(self, instance_family):
         # Remove any suffix after dot (e.g., 'search' or 'elasticsearch')
@@ -777,7 +783,7 @@ class InstanceConversionToGraviton(RegionConversion):
 
     def get_instance_details(self, instance_type):
         """Get instance type specifications using describe_instance_types"""
-        ec2 = boto3.client('ec2', region_name='us-east-1')
+        ec2 = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.appConfig.default_selected_region)
         
         try:
             response = ec2.describe_instance_types(InstanceTypes=[instance_type])
@@ -840,8 +846,8 @@ class InstanceConversionToGraviton(RegionConversion):
 
     def get_graviton_equivalents(self, instance_id, region, account_id):
         # Create clients
-        compute_optimizer = boto3.client('compute-optimizer', region_name='us-east-1')
-        ec2 = boto3.client('ec2', region_name='us-east-1')
+        compute_optimizer = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=self.appConfig.default_selected_region)
+        ec2 = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.appConfig.default_selected_region)
 
         try:
             # Get instance recommendations with Graviton preference
@@ -877,8 +883,8 @@ class InstanceConversionToGraviton(RegionConversion):
 
     def get_graviton_equivalents_from_db(self, instance_id, region, account_id):
         # Create clients
-        compute_optimizer = boto3.client('compute-optimizer', region_name='us-east-1')
-        ec2 = boto3.client('ec2', region_name='us-east-1')
+        compute_optimizer = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=self.appConfig.default_selected_region)
+        ec2 = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=self.appConfig.default_selected_region)
 
         try:
             # Get instance recommendations with Graviton preference
@@ -970,16 +976,14 @@ class CurBase(ReportBase, ABC):
         # retrieve Athena database information from customer configuration
         try:
             self.cur_s3_bucket = self.appConfig.config['cur_s3_bucket']
-            self.cur_db = self.appConfig.cur_db_arguments_parsed if self.appConfig.cur_db_arguments_parsed else self.appConfig.config['cur_db']
-            self.cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
+            self.cur_db = self.appConfig.arguments_parsed.cur_db if self.appConfig.arguments_parsed.cur_db else self.appConfig.config['cur_db']
+            self.cur_table = self.appConfig.arguments_parsed.cur_table if self.appConfig.arguments_parsed.cur_table else self.appConfig.config['cur_table']
             self.cur_region = self.appConfig.config['cur_region']
         except KeyError as e:
             self.logger.error(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
             raise
 
         #Athena table name
-        self.cur_db = self.appConfig.cur_db_arguments_parsed if self.appConfig.cur_db_arguments_parsed else self.appConfig.config['cur_db']
-        self.cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
         self.logger.info(f'Setting {self.name()} report table_name to: {self.fqdb_name}')
 
         self.partition_format = self.get_partition_format()
@@ -1216,32 +1220,35 @@ class CurBase(ReportBase, ABC):
                     chart_sheet.insert_chart('D2', chart, {'x_scale': 2, 'y_scale': 1.5})
                     return
 
-    def GetMinAndMaxDateFromCurTable(self, client, fqdb_name: str, payer_id: str = '', account_id: str = '', region: str = ''):
+    def GetMinAndMaxDateFromCurTable(self, client, fqdb_name: str, payer_id: str = '', account_id: str = '', region: str = '', months_back: int = 0):
         # self.minDate and self.maxDate is empty string
         try:
             l_msg = f"Get minDate and maxDate from the CUR table {fqdb_name}, please wait..."
             self.appConfig.console.print(l_msg)
 
             # get minDate and maxDate from the CUR table, used for selection like 1 month records old or 15 days records old
+            # If months_back is provided, subtract that many months from the max date
             l_SQL = f"""SELECT 
-CAST(DATE_TRUNC('month', max(distinct(bill_billing_period_start_date))) AS DATE), 
-CAST(DATE_ADD('month', 1, DATE_TRUNC('month', max(distinct(bill_billing_period_start_date)))) - INTERVAL '1' DAY AS DATE) 
-FROM {fqdb_name} 
-GROUP BY bill_billing_period_start_date;"""
+CAST(DATE_TRUNC('month', DATE_ADD('month', -{months_back}, max(distinct(bill_billing_period_start_date)))) AS DATE), 
+CAST(DATE_ADD('month', 1, DATE_TRUNC('month', DATE_ADD('month', -{months_back}, max(distinct(bill_billing_period_start_date))))) - INTERVAL '1' DAY AS DATE) 
+FROM {fqdb_name};"""
             l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
             l_SQL3 = sqlparse.format(l_SQL2, keyword_case='upper', reindent=False, strip_comments=True)
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, l_SQL3, self.appConfig.config['cur_s3_bucket'], cur_db)
-            if len(response) == 0:
+            if len(response) < 2:
                 self.logger.warning(f"No resources found for athena request : {l_SQL3}.")
+                self.appConfig.console.print(f"No resources found for athena request : {fqdb_name}. By default, using now() datetime")
             else:
                 minDate = response[1]['Data'][0]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][0] else ''
                 maxDate = response[1]['Data'][1]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][1] else ''
                 l_msg = f"MinDate is {minDate} and MaxDate is {maxDate} "
+                if months_back > 0:
+                    l_msg += f"(using data from {months_back} month{'s' if months_back > 1 else ''} before the latest month)"
                 self.appConfig.console.print(l_msg)
                 return minDate, maxDate
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
             self.appConfig.console.print("\n[red]"+l_msg)
             self.logger.error(l_msg)
-        return '', ''
+        return 'N/A', 'N/A'

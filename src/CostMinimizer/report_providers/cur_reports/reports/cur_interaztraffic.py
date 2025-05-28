@@ -170,7 +170,7 @@ class CurInteraztraffic(CurBase):
         Returns 0 if an error occurs during the process.
         """
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except:
             return 0
 
@@ -272,7 +272,7 @@ class CurInteraztraffic(CurBase):
         # Execute Athena request defined by p_SQL SQL query and get the results
         # This calls the run_athena_query method to execute the query and retrieve results
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -288,7 +288,7 @@ class CurInteraztraffic(CurBase):
         else:
             # Skip the first row (headers) and process each subsequent row
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):

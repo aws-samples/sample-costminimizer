@@ -22,6 +22,9 @@ import numpy as np
 import json
 from rich.progress import track
 
+from ...config.config import Config
+
+
 # Required to load modules from vendored subfolder (for clean development env)
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "./vendored"))
 logger = logging.getLogger(__name__)
@@ -30,6 +33,8 @@ logger = logging.getLogger(__name__)
 class EbsVolumesCache:
 
     def __init__(self) -> None:
+        
+        self.appConfig = Config()
         self.cache = {}
     
     def check_if_cache_value_exists(self, account_id, region, volumeType):
@@ -61,14 +66,14 @@ class EbsVolumesCache:
 class PricingQuery:
     def __init__(self, account_number, region, service_code, **term_matches):
         self.account_number = account_number
+        self.appConfig = Config()
         
         # NOTE -- currently only us-east-1 region is supported with this API
         self.region = region
         self.service_code = service_code
         
         # Setup API client 
-        session = boto3.Session(region_name=self.region)
-        self.client = session.client('pricing')
+        self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('pricing')
         
         # Pre load the list of attributes for the service
         self.__service_attributes = None
@@ -130,8 +135,9 @@ class InstanceReport:
         'monthlyCost'
     ]
 
-    def __init__(self):
+    def __init__(self, appConfig):
         self.custom_results = InstanceResults
+        self.appConfig = appConfig
 
     def get_region_description(self, region_code):
         REGION_NAMES = {
@@ -152,11 +158,10 @@ class InstanceReport:
             'sa-east-1': 'South America (São Paulo)',
             'ca-central-1': 'Canada (Central)'}
 
-        session = boto3.Session()
-        regions = session.get_available_regions('ec2')
+        regions = self.appConfig.auth_manager.aws_cow_account_boto_session.get_available_regions('ec2')
         
         # Using ec2 client to get region names
-        ec2 = boto3.Session().client('ec2', region_code)
+        ec2 = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_code)
         response = ec2.describe_regions(RegionNames=[region_code], AllRegions=True)
         
         if response['Regions']:
@@ -301,8 +306,7 @@ class InstanceReport:
                     volume_ids.append(vol_id)
             try:
                 # Create a new boto3 session and EC2 client
-                session = boto3.Session()
-                ec2_client = session.client('ec2', region_name=region)
+                ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=region)
                 
                 response = ec2_client.describe_volumes(VolumeIds=volume_ids)
                 volumes_info = response.get('Volumes', [])
@@ -331,7 +335,7 @@ class InstanceReport:
     def _get_account_name(self, account_id):
         # get the account alias of the current boto session
         try:
-            iam_client = boto3.client('iam')
+            iam_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('iam')
             response = iam_client.list_account_aliases()
             aliases = response.get('AccountAliases', [])
             if aliases:
@@ -352,7 +356,7 @@ class InstanceReport:
     def get_platform(self, instance_id, region):
 
         # Create boto3 EC2 client 
-        ec2_client = boto3.client('ec2', region_name=region)
+        ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=region)
 
         response = ec2_client.describe_instances(InstanceIds=[instance_id])
 
@@ -374,7 +378,7 @@ class InstanceReport:
         account_name = self._get_account_name(account_id)  
         
         # Create boto3 EC2 client 
-        ec2_client = boto3.client('ec2', region_name=region)
+        ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=region)
         
         try:
             # Convert filters format if needed
@@ -385,7 +389,7 @@ class InstanceReport:
             instances_list = []
 
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {region}[/green]'
+                display_msg = f'[green]Running Compute Optimizer Report: {report_name} / {region}[/green]'
             else:
                 display_msg = ''
             for reservation in track(response.get('Reservations', []), description=display_msg):
@@ -441,7 +445,7 @@ class InstanceReport:
             return []
 
     def get_instance_cost(self, instance_id, Cost_type = 'UnblendedCost'):
-        ce_client = boto3.client('ce')
+        ce_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ce')
         
         # Set time range for last 30 days
         end_date = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -491,7 +495,11 @@ class InstanceReport:
     # Combine both APIs to get recommendations and costs
     def get_recommendations_with_costs( self, region, account, display = True, report_name = '') -> List[Dict[str, Any]]:
 
-        co_client = boto3.client('compute-optimizer', region_name=region)
+        try:
+            # expired = self.appConfig.auth_manager.aws_cow_account_boto_session.get_credentials()._is_expired()
+            co_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=region)
+        except Exception as e:
+            print(f"Error: {str(e)}")
 
         try:
             recommendations = co_client.get_ec2_instance_recommendations()
@@ -499,7 +507,7 @@ class InstanceReport:
             instances_list = []
 
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {region}[/green]'
+                display_msg = f'[green]Running Compute Optimizer Report: {report_name} / {region}[/green]'
             else:
                 display_msg = ''
             for recommendation in track(recommendations['instanceRecommendations'], description=display_msg):
@@ -558,7 +566,8 @@ class CoBase(ReportBase, ABC):
         self.sixmonth = (datetime.date.today() - relativedelta(months=+6)).replace(day=1) #1st day of month 6 months ago, so RI util has savings values
         try:
             self.accounts = self.getAccounts()
-        except:
+        except Exception as e:
+            #self.appConfig.
             logging.exception("Getting Account names failed")
             self.accounts = {}
 
@@ -643,15 +652,19 @@ class CoBase(ReportBase, ABC):
         try:
             client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
         except Exception as e:
-            self.appConfig.console.print('\n[red]Unable to establish boto session for Organizations.  \n{e}[/red]')
+            self.appConfig.console.print(f'\n[red]Unable to establish boto session for Organizations.  \n{e}[/red]')
             sys.exit()
 
         paginator = client.get_paginator('list_accounts')
         response_iterator = paginator.paginate()
-        for response in response_iterator:
-            for acc in response['Accounts']:
-                accounts[acc['Id']] = acc
-        return accounts
+        try:
+            for response in response_iterator:
+                for acc in response['Accounts']:
+                    accounts[acc['Id']] = acc
+            return accounts
+        except Exception as e:
+            self.appConfig.console.print('\n[red]Unable to get accounts from Organizations.  \n{e}[/red]')
+            sys.exit()
 
     def addCoReport(self, range_categories, range_values, list_cols_currency, group_by): #Call with Savings True to get Utilization report in dollar savings
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values

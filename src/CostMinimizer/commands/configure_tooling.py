@@ -14,6 +14,7 @@ from ..security.cow_encryption import CowEncryption
 from ..utils.term_menu import launch_terminal_menu
 from ..gexport_conf.gexport_conf import CowExportConf
 from ..gimport_conf.gimport_conf import CowImportConf
+
 import click
 import tabulate as tabulate
 import ast
@@ -41,10 +42,10 @@ RESET = '\033[0m'  # Reset color
 
 class ConfigureToolingCommand:
 
-    def __init__(self, appInstance) -> None:
-        self.appInstance = appInstance
-        self.appConfig = appInstance.config_manager.appConfig
-
+    def __init__(self) -> None:
+        #Todo remove appInstance
+        from ..config.config import Config
+        self.appConfig = Config()
         self.logger = logging.getLogger(__name__)
         self.module_path =  self.appConfig.internals['internals']['reports']['reports_module_path']
         self.default_report_configs = []
@@ -104,7 +105,6 @@ class ConfigureToolingCommand:
         report_parameters = self.appConfig.database.get_report_parameters(report_name)                
         self._configure_report_parameters(report_name, report_parameters)
 
-        
     def _configure_report_parameters(self,report_name, report_parameters):
         '''display current parameters and user can change them to something new'''
         #[report_name:{'parameter_name':'value','current_value':'value','allowed_values':['val','val,'val']}]
@@ -337,7 +337,6 @@ class ConfigureToolingCommand:
 
         return list_options
     
-    
     def insert_automated_configuration(self, configuration, configuration_type=None, **kwargs) -> None:
         '''
         insert automated configuration
@@ -368,7 +367,7 @@ class ConfigureToolingCommand:
 
         try:
             # Create an Athena client
-            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name='us-east-1')
+            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name=self.appConfig.default_selected_region)
 
             # Get the primary workgroup details
             response = athena_client.get_work_group(WorkGroup='primary')
@@ -383,11 +382,11 @@ class ConfigureToolingCommand:
     # get the list of CUR databases in Athena default current user credentails
     # then display the list of databases and 
     # offer to the user the possibility to select one of the databases in the list using launch_terminal_menu
-    def get_athena_cur_databases(self) -> tuple:
+    def get_athena_cur_databases(self, cur_region) -> tuple:
         '''return athena cur databases'''
         athena_cur_databases = []
         try:
-            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name='us-east-1')
+            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name=cur_region)
             response = athena_client.list_databases(
                 CatalogName='AwsDataCatalog'
             )
@@ -406,11 +405,11 @@ class ConfigureToolingCommand:
     # get the list of CUR tables in Athena default current user credentails
     # then display the list of tables and 
     # offer to the user the possibility to select one of the tables in the list using launch_terminal_menu
-    def get_athena_cur_tables(self, pDatabaseName) -> tuple:
+    def get_athena_cur_tables(self, cur_region, pDatabaseName) -> tuple:
         '''return athena cur tables'''
         athena_cur_tables = []
         try:
-            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name='us-east-1')
+            athena_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('athena', region_name=cur_region)
             response = athena_client.list_table_metadata(
                 CatalogName='AwsDataCatalog',
                 DatabaseName=pDatabaseName
@@ -451,11 +450,11 @@ class ConfigureToolingCommand:
 
     # get list of SES origin email address from the existing SES configuration
     # offer to the user to selection on of the user in the list using launch_terminal_menu
-    def get_ses_origin_email_addresses(self) -> tuple:
+    def get_ses_origin_email_addresses(self, ses_region) -> tuple:
         '''return ses origin email addresses'''
         ses_origin_email_addresses = []
         try:
-            ses = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ses', region_name=self.appConfig.selected_regions[0])
+            ses = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ses', region_name=ses_region)
 
             # List identities
             try:
@@ -482,19 +481,19 @@ class ConfigureToolingCommand:
         '''return default region'''
         region = ''
         try:
-            region = boto3.session.Session().region_name or 'us-east-1'  # Provides default if None
+            region = self.appConfig.auth_manager.aws_cow_account_boto_session.region_name or 'us-east-1'  # Provides default if None
         except Exception as e:
             self.logger.exception('An error occurred during execution', e, stack_info=True, exc_info=True)
             raise e
         return region
 
     # get default SMTP address server from the current user credentials
-    def get_default_smtp_server(self, default_ses_region) -> str:
+    def get_default_smtp_server(self, ses_region) -> str:
         '''return default smtp server'''
         smtp_server = ''
         try:
             # Get the AWS region
-            region = default_ses_region
+            region = ses_region
             
             # Construct the SMTP endpoint
             smtp_server = f"email-smtp.{region}.amazonaws.com"
@@ -502,7 +501,6 @@ class ConfigureToolingCommand:
         except Exception as e:
             raise e
         return smtp_server
-
 
     def automated_cow_configuration(self, auto=False):
         cow_config = self.appConfig
@@ -524,39 +522,39 @@ class ConfigureToolingCommand:
             default_value = self.appConfig.config['output_folder']
             config['output_folder'] = click.prompt(f"{GREEN}Enter the {YELLOW}output folder path {GREEN}(results are saved into this folder){RESET}", default_value)
 
+            default_value = self.appConfig.config['cur_region']
+            if default_value == '':
+                default_value = 'us-east-1'
+            config['cur_region'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR region{GREEN}, for the CUR checks/requests{RESET}", default_value)
+
             default_value = self.appConfig.config['cur_db']
             if default_value is None or default_value == '':
-                list_databases = self.get_athena_cur_databases()
+                list_databases = self.get_athena_cur_databases( config['cur_region'])
                 if list_databases:
                     default_value = list_databases[0][0]
             config['cur_db'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR Database name{GREEN}, for the CUR checks/requests (like 'customer_cur_data'){RESET}", default_value)
 
             default_value = self.appConfig.config['cur_table']
             if default_value is None or default_value == '':
-                list_tables = self.get_athena_cur_tables(config['cur_db'])
+                list_tables = self.get_athena_cur_tables(config['cur_region'], config['cur_db'])
                 if list_tables:
                     default_value = list_tables[0][0]
             config['cur_table'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR Table name{GREEN}, for the CUR checks/requests{RESET}", default_value)
 
-            default_value = self.appConfig.config['cur_region']
-            if default_value == '':
-                default_value = 'us-east-1'
-            config['cur_region'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR region{GREEN}, for the CUR checks/requests{RESET}", default_value)
-
             default_value = self.appConfig.config['ses_send']
             config['ses_send'] = click.prompt(f"{GREEN}Enter the {YELLOW}SES DESTINATION email address {GREEN}, CostMinimizer results are sent to this email (optional){RESET}", default_value)
-
-            default_value = self.appConfig.config['ses_from']
-            if default_value == '':
-                list_emails = self.get_ses_origin_email_addresses()
-                if list_emails:
-                    default_value = list_emails[0][0]
-            config['ses_from'] = click.prompt(f"{GREEN}Enter the {YELLOW}SES SENDER origin email address {GREEN}, CostMinimizer results are sent using this origin email (optional){RESET}", default_value)
 
             default_value = self.appConfig.config['ses_region']
             if default_value == '':
                 default_value = self.get_default_region()
             config['ses_region'] = click.prompt(f"{GREEN}Enter the {YELLOW}SES region{GREEN} where the Simple Email Server is running (like 'us-east-1'){RESET}", default_value)
+
+            default_value = self.appConfig.config['ses_from']
+            if default_value == '':
+                list_emails = self.get_ses_origin_email_addresses( config['ses_region'])
+                if list_emails:
+                    default_value = list_emails[0][0]
+            config['ses_from'] = click.prompt(f"{GREEN}Enter the {YELLOW}SES SENDER origin email address {GREEN}, CostMinimizer results are sent using this origin email (optional){RESET}", default_value)
 
             default_value = self.appConfig.config['ses_smtp']
             if default_value == '':
@@ -603,7 +601,7 @@ class ConfigureToolingCommand:
             config['cur_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR S3 bucket{GREEN}, for the CUR checks/requests (like s3://bucket-sam-cur-1/')'{RESET}", default_value)
 
             default_value = self.appConfig.config['aws_cow_s3_bucket']
-            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like s3://bucket-sam-cur-1/') (optional){RESET}", default_value)
+            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like bucket-sam-results-costminimizer/') (optional){RESET}", default_value)
 
             self.update_cow_configuration_record(config)
         else:
@@ -665,7 +663,6 @@ class ConfigureToolingCommand:
 
                     dictionary[key] = new_value  # Replace with your specific update operation
         return dictionary
-
 
     def automated_cow_internals_parameters(self) -> dict():
         

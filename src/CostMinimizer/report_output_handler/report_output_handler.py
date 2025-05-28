@@ -16,6 +16,7 @@ import shutil
 import yaml
 import pandas as pd
 import xlsxwriter
+import boto3
 #For email
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -41,11 +42,12 @@ class ReportOutputHandlerBase:
         self.file_extensions_to_encrypt = ['.csv', '.yaml', '.sql', '.json']
 
         report_file_name = self.appConfig.internals['internals']['reports']['report_output_name']
-        self.completion_time = self.appConfig.auth_manager.appInstance.start #moving away from completion time and using time provided by app
-        self.report_time = self.appConfig.auth_manager.appInstance.report_time
+        self.completion_time = self.appConfig.start #moving away from completion time and using time provided by app
+        self.report_time = self.appConfig.report_time
         self.completed_reports = completed_reports
         self.create_directory_structure = create_directory_structure
-        if determine_report_directory or self.appConfig.auth_manager.appInstance.mode == 'module':
+        
+        if determine_report_directory or self.appConfig.mode == 'module':
             self.output_folder = self.get_output_folder()
 
         self.report_directory = self.get_report_directory() #i.e $ACCOUNT_NUMBER/$ACCOUNT_NUMBER-2023-12-12-12-12
@@ -113,10 +115,60 @@ class ReportOutputHandlerBase:
         # get top level report directory
         #report_directory = '.'
         
-        cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
+        cur_table = self.appConfig.arguments_parsed.cur_table if self.appConfig.arguments_parsed.cur_table else self.appConfig.config['cur_table']
         report_directory = cur_table + '-' + self.report_time
 
         return self.output_folder / self.appConfig.config['aws_cow_account'] / report_directory
+        
+    def upload_to_s3(self, local_path, s3_key, s3_bucket_name):
+        """Upload a file or directory to S3 bucket"""
+            
+        try:
+            s3_client = boto3.client('s3')
+            
+            # remove s3:// in front of s3_bucket_name
+            s3_bucket_name = s3_bucket_name.replace('s3://', '').replace('/', '')
+
+            if os.path.isfile(local_path):
+                self.logger.info(f"Uploading file {local_path} to s3://{s3_bucket_name}/{s3_key}")
+                s3_client.upload_file(str(local_path), s3_bucket_name, s3_key)
+            elif os.path.isdir(local_path):
+                # Upload directory contents recursively
+                for root, dirs, files in os.walk(local_path):
+                    for file in files:
+                        local_file_path = os.path.join(root, file)
+                        # Calculate relative path for S3 key
+                        relative_path = os.path.relpath(local_file_path, str(local_path))
+                        s3_file_key = f"{s3_key}/{relative_path}"
+                        self.logger.info(f"Uploading file {local_file_path} to s3://{s3_bucket_name}/{s3_file_key}")
+                        s3_client.upload_file(local_file_path, s3_bucket_name, s3_file_key)
+        except Exception as e:
+            self.logger.error(f"Error uploading to S3: {str(e)}")
+            raise
+            
+    def upload_report_directory_to_s3(self, bucket_name=None):
+        """Upload the entire report directory structure to an S3 bucket"""
+        if bucket_name:
+            self.s3_bucket_name = bucket_name
+        
+        if not self.s3_bucket_name:
+            self.logger.error("No S3 bucket specified for upload")
+            return False
+            
+        try:
+            # Create the base S3 key using the account and report directory name
+            base_s3_key = f"{self.appConfig.config['aws_cow_account']}/{os.path.basename(self.report_directory)}"
+            
+            self.logger.info(f"Uploading entire report directory to s3://{self.s3_bucket_name}/{base_s3_key}")
+            
+            # Upload the entire directory structure
+            self.upload_to_s3(self.report_directory, base_s3_key)
+            
+            self.logger.info(f"Successfully uploaded report to S3 bucket: {self.s3_bucket_name}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to upload report directory to S3: {str(e)}")
+            return False
 
     def delete_report(self, customer, report_time) -> bool:
         report_name = f'{customer}-{report_time}'
@@ -141,10 +193,7 @@ class ReportOutputMetaData(ReportOutputHandlerBase):
 
         self.failed_reports = failed_reports
 
-        # self.write_to_csv()
         self.write_to_yaml()
-        # self.write_failed_logs()
-        # self.write_execution_ids_to_log()
 
     def write_tmp_file(self, filename, data):
         # write data to tmp file in json format
@@ -203,6 +252,7 @@ class ReportOutputMetaData(ReportOutputHandlerBase):
             yaml.dump(customer_yaml_file, f)
 
         self.logger.info('Report YAML Request written to: %s', yaml_filename)
+
 
     def write_failed_logs(self) -> None:
 
@@ -429,13 +479,13 @@ troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-cos
                 try:
                     s3= self.appConfig.auth_manager.aws_cow_account_boto_session.client('s3')
                 except Exception as e:
-                    self.appConfig.console.print('\n[red]Unable to establish boto session for s3. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
+                    self.appConfig.console.print(f'\n[red]ERROR: Unable to establish boto session for s3. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
                     sys.exit()
 
                 s3.upload_file( self.appConfig.report_file_name, self.appConfig.config['aws_cow_s3_bucket'], self.appConfig.report_file_name)
                 self.logger.info(f"Successfuly uploaded file {self.appConfig.report_file_name} into bucket {self.appConfig.config['aws_cow_s3_bucket']}")
             except:
-                self.logger.warning(f"[red]Error while trying to upload XLSX file into bucket {self.appConfig.config['aws_cow_s3_bucket']}")
+                self.logger.warning(f"[red]ERROR while trying to upload XLSX file into bucket {self.appConfig.config['aws_cow_s3_bucket']}")
 
         if self.appConfig.config['ses_send']:
             try:
@@ -458,7 +508,7 @@ troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-cos
                 try:
                     ses= self.appConfig.auth_manager.aws_cow_account_boto_session.client('ses')
                 except Exception as e:
-                    self.appConfig.console.print('\n[red]Unable to establish boto session for Ses. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
+                    self.appConfig.console.print(f'\n[red]ERROR: Unable to establish boto session for Ses. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
                     sys.exit()
 
                 result = ses.send_raw_email(

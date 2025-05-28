@@ -10,6 +10,7 @@ import logging
 import json
 from time import sleep
 from ..utils.yaml_loader import import_yaml_file
+from ..config.config import Config
 
 class ReportRequestFileNotProvidedException(Exception):
     pass
@@ -36,6 +37,9 @@ class ReportsParse:
         self.logger = logging.getLogger(__name__)
         self.report_request = report_request
         '''report naming standard: "report_name.suffix"'''
+
+    def __repr__(self):
+        return f"{self.get_all_reports()}"
 
     def _get_report_name(self, report) -> str:
         '''return report name w/o suffix'''
@@ -213,8 +217,8 @@ class ToolingReportRequest:
     return report ReportParse and CustomerParse objects 
     '''
 
-    def __init__(self, appConfig, report_request_input_file, selected_customer, read_from_database=False, reports_from_menu=None) -> None:
-        self.appConfig = appConfig
+    def __init__(self, report_request_input_file, read_from_database=False, reports_from_menu=None, selected_customer='') -> None:
+        self.appConfig = Config()
         self.logger = logging.getLogger(__name__)
         self.report_request_input_file = report_request_input_file
         self.selected_customer = selected_customer
@@ -253,8 +257,6 @@ class ToolingReportRequest:
         regions and accounts under the customer - the rest is loaded from 
         the database
         '''
-        #self._set_customer_request_from_database()
-
         #reports coming only from menu items
         if self.appConfig.datasource == 'database':
             self.report_request['reports'] = self.reports_from_menu
@@ -262,7 +264,9 @@ class ToolingReportRequest:
         self.reports = ReportsParse(self.report_request['reports'])
         #self.customers = CustomerParse(self.report_request['customers'], self.selected_customer)
 
-
+    def __repr__(self):
+        return f"{self.reports_from_menu}"
+    
     def load_report_request_file(self) -> dict:
             
         if self.appConfig.mode == 'cli':
@@ -318,7 +322,6 @@ class ToolingReportRequest:
         self.report_request['customers'][self.selected_customer]['min_spend'] = customer_from_database[0][11]
         self.report_request['customers'][self.selected_customer]['regex'] = customer_from_database[0][12]
 
-    
     def validate_report_sections(self, sections) -> None:
         '''assert that customers and reports sections exist and have data'''
         for section in sections:
@@ -348,5 +351,7 @@ class ToolingReportRequest:
     def get_all_reports(self):
         '''Return customer and reports objects'''
         return (self.get_customer(), self.get_reports())
+    
+        
 
 

@@ -72,9 +72,9 @@ class TaSssincompletemultipartuploadabortconfiguration(TaBase):
 
     def count_rows(self) -> int:
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
-            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+            self.appConfig.logger.warning(f"Error in {self.name()}: {str(e)}")
             return 0
 
     def addTaReport(self, client, Name, CheckId, Display = True):
@@ -85,10 +85,12 @@ class TaSssincompletemultipartuploadabortconfiguration(TaBase):
 
         data_list = []
 
+        # if there is no resource for the specific checkid
         if response['result']['status'] == 'not_available':
             print(f"No resources found for checkid {CheckId} - {Name}.")
+            self.report_result.append({'Name': Name, 'Data': pd.DataFrame(), 'Type': type})
         else:
-            display_msg = f'[green]Running Trusted Advisor Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+            display_msg = f'[green]Running Trusted Advisor Report: {Name} / {self.appConfig.selected_regions}[/green]'
             for resource in track(response['result']['flaggedResources'], description=display_msg):
                 data_dict = {
                     # Rename columns for better readability

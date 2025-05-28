@@ -108,7 +108,7 @@ class CoInstancesebsreport(CoBase):
     def count_rows(self) -> int:
         '''Return the number of rows found in the dataframe'''
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
             self.appConfig.console.print(f"Error in counting rows: {str(e)}")
             return 0
@@ -137,7 +137,7 @@ class CoInstancesebsreport(CoBase):
         # implement object of InstanceReport class
         from ..co_base import InstanceReport
 
-        IR = InstanceReport()
+        IR = InstanceReport(self.appConfig)
 
         # call do_work function of IR object
         # results is a list of dictionaries
@@ -174,3 +174,9 @@ class CoInstancesebsreport(CoBase):
     def get_group_by(self):
         # [ColX1, ColX2,...]
         return [9,10]
+    
+    def require_user_provided_region(self)-> bool:
+        '''
+        determine if report needs to have region
+        provided by user'''
+        return True

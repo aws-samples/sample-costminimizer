@@ -13,14 +13,16 @@ import os
 from datetime import datetime
 import pandas as pd
 
-from ..report_controller.report_controller import CowReportController
-from ..report_output_handler.report_output_handler import ReportOutputExcel, ReportOutputMetaData, ReportOutputHandlerBase, ReportOutputDisplayAlerts
-from ..report_output_handler.report_output_pptx import ReportOutputPptxHandler
-from .configure_tooling import ConfigureToolingCommand
-from ..security.cow_authentication import Authentication
-from ..error.error import CustomerNotFoundError
+from ..config.config import Config
 from ..metrics.metrics import CowMetrics
-
+from ..error.error import CustomerNotFoundError
+from ..security.cow_authentication import Authentication
+from .configure_tooling import ConfigureToolingCommand
+from ..utils.term_menu import clear_cli_terminal
+from ..report_request_parser.report_request_parser import ToolingReportRequest
+from ..report_controller.report_controller import CowReportController
+from ..report_output_handler.report_output_pptx import ReportOutputPptxHandler
+from ..report_output_handler.report_output_handler import ReportOutputExcel, ReportOutputMetaData, ReportOutputHandlerBase, ReportOutputDisplayAlerts
 
 class ErrorInReportDiscovery(Exception):
     pass
@@ -28,11 +30,10 @@ class ErrorInReportDiscovery(Exception):
 class RunToolingRun:
 
     def __init__(self, appInstance, selected_reports=None, selected_accounts=None, selected_regions=None, report_request_mode=None, send_mail=None) -> None:
-        self.appInstance = appInstance
-        self.appConfig = appInstance.config_manager.appConfig
-
         self.logger = logging.getLogger(__name__)
-
+        self.appInstance = appInstance
+        self.appConfig = Config()
+        
         self.selected_reports = selected_reports
         self.selected_accounts = selected_accounts
         self.appInstance.selected_regions = selected_regions
@@ -53,7 +54,7 @@ class RunToolingRun:
 
         '''
 
-        if self.appInstance.AppliConf.mode == 'cli':
+        if self.appConfig.mode == 'cli':
             '''
             In cli/menu mode menu_selected_reports is passed in as a launch_terminal_menu object
             which needs to be converted to a dict, such as:
@@ -73,7 +74,7 @@ class RunToolingRun:
                 except Exception as e:
                     ErrorInReportDiscovery(f'Unable to pull report name {report_name} from the sqllite database.')
 
-            self.appConfig.customers, self.appConfig.reports = self.appInstance.report_request_parse(reports)
+            self.appConfig.customers, self.appConfig.reports = self.report_request_parse(reports)
 
     def set_report_request_arguments(self, selected_reports) -> None:
         '''
@@ -82,7 +83,7 @@ class RunToolingRun:
 
         '''
 
-        if self.appInstance.AppliConf.mode == 'cli':
+        if self.appConfig.mode == 'cli':
             '''
             In cli/menu mode menu_selected_reports is passed in as a launch_terminal_menu object
             which needs to be converted to a dict, such as:
@@ -105,7 +106,7 @@ class RunToolingRun:
                     except Exception as e:
                         ErrorInReportDiscovery(f'Unable to pull report name {report_name} from the sqllite database.')
 
-            self.appConfig.customers, self.appConfig.reports = self.appInstance.report_request_parse(reports)
+            self.appConfig.customers, self.appConfig.reports = self.report_request_parse(reports)
 
     def set_report_request(self, menu_selected_reports) -> None:
         '''
@@ -114,11 +115,11 @@ class RunToolingRun:
 
         '''
 
-        if self.appInstance.AppliConf.mode == 'cli':
+        if self.appConfig.mode == 'cli':
             '''
             In cli/menu mode menu_selected_reports is passed in as a launch_terminal_menu object
             which needs to be converted to a dict, such as:
-            i.e.: {'ebs_unattached_volumes.k2': True, 'lambda_arm_savings.cur': True}
+            i.e.: {'ce_accounts.ce': True, 'ce_services.ce': True}
             '''
             if menu_selected_reports is None:
                 # If running from YAML file this will come in as 'None' and that's ok
@@ -137,16 +138,29 @@ class RunToolingRun:
                     except:
                         ErrorInReportDiscovery(f'Unable to pull report name {report_common_name} from the sqllite database.')
 
-            self.appConfig.customers, self.appConfig.reports = self.appInstance.report_request_parse(reports)
+            self.appConfig.customers, self.appConfig.reports = self.report_request_parse(reports)
 
-        elif self.appInstance.AppliConf.mode == 'module':
+        elif self.appConfig.mode == 'module':
             '''
             menu_selected_reports should be passed in as a dict of reports
             i.e.: {'ebs_unattached_volumes.k2': True, 'lambda_arm_savings.cur': True}
             '''
 
-            self.appConfig.customers, self.appConfig.reports = self.appInstance.report_request_parse(menu_selected_reports)
-            
+            self.appConfig.customers, self.appConfig.reports = self.report_request_parse(menu_selected_reports)
+        
+    def check_for_required_region(self):
+        '''
+        Certain reports such as trusted advisor typically run in us-east-1
+        other reports require regions to be selected by the user
+        '''
+        enabled_reports = self.appConfig.reports.get_all_enabled_reports().keys()
+        for report in self.appConfig.report_classes:
+            report_instance = report(self.appConfig)
+            if report_instance.name() in enabled_reports and report_instance.require_user_provided_region():
+                return True
+                       
+        return False
+    
     def set_user_tags_map(self) -> None:
         
         self.appConfig.user_tag_list = CowReportController(self.appConfig, self.writer)._get_user_tags()
@@ -187,7 +201,7 @@ class RunToolingRun:
         Generate report xlsx, metadata and csv data
         '''
 
-        if self.appInstance.AppliConf.cow_execution_type == 'sync':
+        if self.appConfig.cow_execution_type == 'sync':
             self.logger.info(f'Generating Report Excel Output')
             s = datetime.now()
             roe = ReportOutputExcel(self.appConfig, report_controller.get_completed_reports_from_controller(), completion_time)
@@ -208,7 +222,7 @@ class RunToolingRun:
             self.logger.info(f'Finished Writing Metadata in {t.total_seconds()} seconds')
 
             try:
-                asts = ReportOutputPptxHandler(self.appConfig, report_controller.get_completed_reports_from_controller(), report_controller.get_failed_reports_from_controller(), self.appInstance.start)
+                asts = ReportOutputPptxHandler(self.appConfig, report_controller.get_completed_reports_from_controller(), report_controller.get_failed_reports_from_controller(), self.appConfig.start)
                 asts.run()
 
                 asts.fill_in_ppt_report( self.final_report_output_folder)
@@ -218,6 +232,20 @@ class RunToolingRun:
                 self.appConfig.console.print(f'')
                 self.appConfig.console.print(f'[red][Error:] [green]Powerpoint presentation: {e}')
 
+            # Check if results should be saved to S3
+            self.use_s3_bucket = (hasattr(self.appConfig.arguments_parsed, 'bucket_for_results') and self.appConfig.arguments_parsed.bucket_for_results is not None) or (str(self.appConfig.internals['internals']['results_folder']['enable_bucket_for_results']).lower() in ('true', 'yes', '1', 't', 'y'))
+            if self.use_s3_bucket:
+                self.s3_bucket_name = self.appConfig.arguments_parsed.bucket_for_results if (hasattr(self.appConfig.arguments_parsed, 'bucket_for_results') and self.appConfig.arguments_parsed.bucket_for_results is not None) else self.appConfig.internals['internals']['results_folder']['bucket_for_results']
+
+            # If using S3, create a temporary local structure that will be uploaded later
+            if self.use_s3_bucket:
+                self.logger.info(f"Results will be uploaded to S3 bucket: {self.s3_bucket_name}")
+
+            # Upload to S3 if enabled
+            if self.use_s3_bucket:
+                s3_key = f"{self.appConfig.config['aws_cow_account']}_{os.path.basename(self.final_report_output_folder)}"
+                romd.upload_to_s3(self.final_report_output_folder, s3_key, self.s3_bucket_name)
+
             return roe
 
     def run_display_alerts_to_cli(self, report_folder):
@@ -225,8 +253,8 @@ class RunToolingRun:
         try:
             # Create a slide for "AWS Account Not Part of AWS Organizations"
             # Add your code here to create the slide
-            self.appConfig.console.print( f'[yellow]TIP :[/yellow] how to ask genAI any question about this analyze of AWS Costs =>')
-            self.appConfig.console.print( f'   CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, what is the cost of my AWS service for the year 2024 for the account nammed slepetre@amazon.com ?" -f "{report_folder}"\n')
+            self.appConfig.console.print( f'[yellow]TIP :[/yellow] CostMinimizer allows you to use Gen AI to ask a question about your dataset =>')
+            self.appConfig.console.print( f'   CostMinimizer -q "Based on the in the attached file, what is my top savings opportunity?" -f "{report_folder}"\n')
         except Exception as e:
             self.appConfig.logger.error(f"Error creating slide for AWS Account Not Part of AWS Organizations: {str(e)}")
             # Handle the error appropriately
@@ -285,40 +313,32 @@ class RunToolingRun:
     def display_available_reports_menu(self):
         '''display a selectable menu of reports'''
 
-        menu = ConfigureToolingCommand(self.appInstance).report_menu()
+        menu = ConfigureToolingCommand().report_menu()
 
         return menu
 
-    def display_regions_menu(self, selected_accounts, selected_regions) -> list:
+    def display_regions_menu(self, selected_accounts, requires_region_selection=False) -> list:
         '''display regions menu; return region list'''
         # If region is specified via command line, use it
-        if self.appConfig.arguments_parsed.region:
-            self.logger.info(f"Using region specified via command line: {self.appConfig.arguments_parsed.region}")
-            return [self.appConfig.arguments_parsed.region]
-        
-        # Check if --co option is used
-        requires_region_selection = (self.appConfig.arguments_parsed.co)
+        if self.appConfig.selected_regions:
+            return self.appConfig.selected_regions
         
         # If --co is not used, skip region selection
         if not requires_region_selection:
             self.logger.info("Region selection skipped: --co option were not used")
-            # Use default region (us-east-1) for --ce or --ta options
-            return ["us-east-1"]
-            
-        # If we need region selection and no regions are selected yet, show the menu
-        if (selected_regions is None) or (len(selected_regions) == 0):
-            self.logger.info("Displaying region selection menu for --co options")
-            menu_regions = ConfigureToolingCommand(self.appInstance).regions_menu(selected_accounts)
+            # Use default region, specified in Config()
+            return self.appConfig.default_selected_region
+        else:
+            self.logger.info("Displaying region selection menu")
+            menu_regions = ConfigureToolingCommand().regions_menu(selected_accounts)
 
             selected_regions = []
             for region in menu_regions:
                 region_id = region.split(':')[0].strip()
                 selected_regions.append(region_id)
-        else:
-            selected_regions = selected_regions
             
         self.logger.info(f"Selected regions: {selected_regions}")
-        return selected_regions
+        return selected_regions[0]
 
     def display_pptx_menu(self, selected_accounts):
         '''display powerpoint report menu'''
@@ -328,8 +348,8 @@ class RunToolingRun:
 
         if pptx_enable[0] == 'Yes':
 
-            if self.appInstance.AppliConf.mode == 'cli':
-                pptx_selection = ConfigureToolingCommand(self.appInstance).pptx_menu(num_selected_accounts)
+            if self.appConfig.mode == 'cli':
+                pptx_selection = ConfigureToolingCommand().pptx_menu(num_selected_accounts)
                 # pptx_selection = ['', 1]
                 if pptx_selection[1] == 0:
                     self.appConfig.pptx_report = 'payer'
@@ -339,7 +359,7 @@ class RunToolingRun:
                     self.appConfig.pptx_report = 'linked_accounts' #make payer the default
                     self.logger.error('Invalid PPTX report selection.')
 
-                pptx_charge_types = ConfigureToolingCommand(self.appInstance).pptx_charge_types()
+                pptx_charge_types = ConfigureToolingCommand().pptx_charge_types()
 
                 #make list of all selected values
                 self.appConfig.pptx_charge_types = [ct[0] for ct in pptx_charge_types]
@@ -351,7 +371,7 @@ class RunToolingRun:
                     #Remove any 'None' values
                     if 'None' in self.appConfig.pptx_charge_types:
                         self.appConfig.pptx_charge_types.remove('None')
-            if self.appInstance.AppliConf.mode == 'module': #TODO this selection needs to go into the GUI 
+            if self.appConfig.mode == 'module': #TODO this selection needs to go into the GUI 
                 self.appConfig.pptx_report = 'payer'
                 self.appConfig.pptx_charge_types = ['Tax', 'Support', 'Credit', 'Refund']
 
@@ -366,12 +386,12 @@ class RunToolingRun:
         return tag_list
 
     def display_user_tags_menu(self) -> None:
-        menu_user_tags = ConfigureToolingCommand(self.appInstance).user_tags_menu(None, self.appConfig.user_tag_list)
+        menu_user_tags = ConfigureToolingCommand().user_tags_menu(None, self.appConfig.user_tag_list)
 
         while len(menu_user_tags)>3:
             #prompt and re-ask if too many selected
             #self.appConfig.config.console.print(f'Please select a maximum of 3 tags: {len(menu_user_tags)} tags selected.')
-            menu_user_tags = ConfigureToolingCommand(self.appInstance).user_tags_menu(f'Please select a maximum of 3 tags. {len(menu_user_tags)} tags selected.', self.appConfig.user_tag_list)
+            menu_user_tags = ConfigureToolingCommand().user_tags_menu(f'Please select a maximum of 3 tags. {len(menu_user_tags)} tags selected.', self.appConfig.user_tag_list)
 
         self.appConfig.user_tags =menu_user_tags
         self.appConfig.user_tag_values =[]
@@ -388,7 +408,7 @@ class RunToolingRun:
             tag_list = tag_data_values[cur_tag[0]].tolist()
             tag_list = list(dict.fromkeys(tag_list))
             tag_list.sort(key=str.lower)
-            selected_tags = ConfigureToolingCommand(self.appInstance).user_tags_menu(tag,tag_list)
+            selected_tags = ConfigureToolingCommand().user_tags_menu(tag,tag_list)
             #tag_dict ={cur_tag[0] : selected_tags,'k2_tag':tag}
             tag_dict ={'cur_tag':cur_tag[0],'tag_list': selected_tags,'k2_tag':tag}
             self.appConfig.user_tag_values.append(tag_dict)
@@ -430,41 +450,79 @@ class RunToolingRun:
 
     def display_accounts_menu(self) -> list:
         '''display accounts menu; return selected accounts'''
-        menu_linked_accounts = self.appConfig.config['aws_cow_account']
+        return self.appConfig.config['aws_cow_account']
+    
+    def report_request_parse(self, parsed_reports_from_menu=None) -> tuple:
+        """
+        Parse the report request.
 
-        return menu_linked_accounts 
+        :param parsed_reports_from_menu: Reports parsed from the menu
+        :return: Tuple containing parsed report information
+        """
+        ''' parse and return report request'''
 
-    def display_region_menu(self) -> list:
-        '''display regions menu; return selected regions'''
-        menu_regions = self.appConfig.auth_manager.aws_cow_account_boto_session.region_name
+        datasource = 'database'
+        datasource_file = self.appConfig.database.database_file.resolve()
+        if self.appConfig.mode == 'cli':
+            '''
+            In cli mode - we first check if there is a report request yaml file provided with the -f option.
+            Next we check if there is a report request file in the default location.
+            Else we check for the report request specified on the command line.
+            '''
+            try:
+                if self.appConfig.default_report_request.is_file():
+                    #Try file from the cow_internals default location
+                    datasource = 'yaml'
+                    report_request = ToolingReportRequest(self.appConfig.default_report_request)
+                    datasource_file = self.appConfig.default_report_request
+                else:
+                    #Try with data from report and customer input menus
+                    report_request = ToolingReportRequest(
+                        self.appConfig.default_report_request,
+                        read_from_database=True,
+                        reports_from_menu=parsed_reports_from_menu
+                        )
 
-        return menu_regions 
+                if self.appConfig.debug:
+                    print(f'[blue underline]Report data source from {datasource} : {datasource_file}')
 
+                self.logger.info(f'Running in {self.appConfig.mode} mode: Report data source from {datasource} : {datasource_file}')
+                return report_request.get_all_reports()
+            except IOError as e:
+                self.logger.error(f"Error accessing file: {str(e)}")
+                raise
+            except Exception as e:
+                self.logger.error(f"Error creating ToolingReportRequest: {str(e)}")
+                raise
+        elif self.appConfig.mode == 'module':
+            #Try with data from report and customer input menus
+            report_request = ToolingReportRequest(
+                self.appConfig.default_report_request,
+                read_from_database=True,
+                reports_from_menu=parsed_reports_from_menu
+                )
+
+            self.logger.info(f'Running in {self.mode} mode: Report data source from {datasource} : {datasource_file}')
+            return report_request.get_all_reports()
+    
     def run(self):
 
         '''
-        Cow request mode is caputure in self.appConfig.AppliConf.mode and may be:
+        Cow request mode is caputure in self.appConfig.mode and may be:
         cli: cow is started on the command line
         module: cow is imported and run as a module from within another program
-
-        Run cow report.  The report request is provided in one of four ways and captured in report_request_mode:
-        1/ file: As a file via argument on the command line (file mode)
-        2/ default: $HOME/.cow is searched for the presence of report_request.yaml (default mode)
-        3/ menu: Report criteria may be selected via a command line menu (menu mode)
-        4/ browser: User is using the browser to select report criteria
         '''
+        try:
+            c = self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts')
+            result = c.get_caller_identity()
+        except Exception as e:
+            raise
+        
+        if self.appConfig.mode == 'cli':
 
-        #set our tag status to False as a default.
-        self.appConfig.using_tags = False
-
-        if self.appInstance.AppliConf.mode == 'cli':
-            '''
-            when running on command line interface
-            '''
+            self.appConfig.using_tags = False
             if hasattr(self.appConfig.arguments_parsed, 'usertags') and (self.appConfig.arguments_parsed.usertags is True):
                 self.appConfig.using_tags = True
-            else:
-                self.appConfig.using_tags = False
 
             # define self.appConfig.reports list
             self.check_report_request_mode()
@@ -485,34 +543,34 @@ class RunToolingRun:
 
                 #sef customer and report requests
                 self.set_report_request(menu_selected_reports)
-
-                self.appInstance.clear_cli_terminal()
+                
+                clear_cli_terminal(self.appConfig.mode)
 
             #validate admin account connection 
-            profile_name = f"{self.appConfig.internals['internals']['boto']['default_profile_name']}_profile"
+            # profile_name = f"{self.appConfig.internals['internals']['boto']['default_profile_name']}_profile"
+
+            requires_region_selection = self.check_for_required_region()
 
             #display accounts menu
             selected_accounts = self.display_accounts_menu()
-
-            #display regions menu
-            selected_regions = self.display_region_menu() # This version is a mono region release only
             
             # Check if region selection is required (--co options)
-            requires_region_selection = (self.appConfig.arguments_parsed.co)
+            #self.appConfig.reports.requires_region_selection() #chris
             if requires_region_selection:
                 self.appConfig.console.print(f"\nRegion selection is required for --co (Compute Optimizer) option.")
             else:
                 self.appConfig.console.print(f"\nRegion selection is not required for --ce, --ta, --cur options: Using default region: us-east-1")
                 
-            self.appConfig.selected_regions = self.display_regions_menu(selected_accounts, selected_regions)
+            self.appConfig.selected_regions = self.display_regions_menu(selected_accounts, requires_region_selection)
+            self.appConfig.selected_region = self.appConfig.selected_regions
 
             #build report contoller
-            self.report_controller = self.report_controller_build( self.writer)
+            self.report_controller = self.report_controller_build(self.writer)
 
             #run report controller run method
             self.report_controller.run()
 
-            if self.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
                 #fetch data
                 with self.appConfig.console.status(f'Fetching report results from providers (this may take a while)...'):
                     self.report_controller.fetch()
@@ -525,7 +583,8 @@ class RunToolingRun:
                 with self.appConfig.console.status(f'Fetching calculated reports from providers...'):
                     self.report_controller.get_provider_reports()
 
-                self.appInstance.end = datetime.now()
+                self.appConfig.end = datetime.now()
+                self.appInstance.end = self.appConfig.end
 
                 #run CostOptimizer metrics
                 self.cm = self.run_tooling_metrics(self.report_controller.all_providers_completed_reports)
@@ -538,7 +597,8 @@ class RunToolingRun:
             with self.appConfig.console.status( l_message):
                 l_roe = self.run_generate_report_output(self.report_controller, self.completion_time)
 
-            self.appInstance.end = datetime.now()
+            self.appConfig.end = datetime.now()
+            self.appInstance.end = self.appConfig.end
 
             #display any alerts to the cli
             self.run_display_alerts_to_cli( l_roe.output_filename)
@@ -568,17 +628,15 @@ class RunToolingRun:
         cm.submit(metric)
 
         #start and end times
-        start = self.appInstance.start
-        end = self.appInstance.end
-        metric = {'start': self.appInstance.start.strftime("%Y-%m-%d %H:%M:%S"), 'end': self.appInstance.end.strftime("%Y-%m-%d %H:%M:%S") }
+        metric = {'start': self.appConfig.start.strftime("%Y-%m-%d %H:%M:%S"), 'end': self.appConfig.end.strftime("%Y-%m-%d %H:%M:%S") }
         cm.submit(metric)
 
         #runnning mode and installation type
-        metric = { 'mode': self.appInstance.AppliConf.mode, 'installation_type': self.appInstance.installation_type }
+        metric = { 'mode': self.appConfig.mode, 'installation_type': self.appConfig.installation_type }
         cm.submit(metric)
 
         #platform
-        metric = { 'platform': self.appInstance.platform }
+        metric = { 'platform': self.appConfig.platform }
         cm.submit(metric)
 
         #Reports and estimated savings
@@ -602,6 +660,6 @@ class RunToolingRun:
         cm.submit(metric)
 
         #total run duration
-        cm.set_running_time(start, end)
+        cm.set_running_time(self.appConfig.start, self.appConfig.end)
 
         return cm

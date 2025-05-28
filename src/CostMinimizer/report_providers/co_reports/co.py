@@ -21,6 +21,7 @@ import boto3
 import logging
 #For email
 from ...report_providers.report_providers import ReportProviderBase
+from ...config.config import Config
 from rich.progress import track
 from pathlib import Path
 
@@ -30,7 +31,7 @@ class CoReports(ReportProviderBase):
     def __init__(self, appConfig):
 
         super().__init__( appConfig)
-        self.appConfig = appConfig
+        self.appConfig = Config()
 
         #Array of reports ready to be output to Excel.
         self.reports = []
@@ -76,7 +77,7 @@ class CoReports(ReportProviderBase):
     def setup(self, run_validation=False):
         '''setup instrcutions for cur report type'''
         try:
-            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=self.appConfig.selected_regions[0])
+            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=self.appConfig.selected_regions)
         except Exception as e:
             self.appConfig.console.print(f'\n[red]Unable to establish boto session for Compute-Optimizer. \n{e}[/red]')
             sys.exit()
@@ -134,7 +135,7 @@ class CoReports(ReportProviderBase):
             try:
                 region = self.regions
                 account = self.accounts
-                report_object.sql( self.client, region, account, display = display, report_name = report_name)
+                report_object.sql(self.client, region, account, display = display, report_name = report_name)
 
                 Name= self.long_name()
 
@@ -145,7 +146,7 @@ class CoReports(ReportProviderBase):
                             report_object.get_list_cols_currency(),
                             report_object.get_group_by())
 
-                self.logger.info(f'Running Cost Optimizer query: {report_name} ')
+                self.logger.info(f'Running Compute Optimizer query: {report_name} ')
             except Exception as e:
                 self.logger.error('Exception occured when during execution of CO query')
                 self.logger.exception(e)
@@ -155,7 +156,7 @@ class CoReports(ReportProviderBase):
 
         report_name = report_object.name()
         
-        display_msg = f'[green]Running Cost Optimizer Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+        display_msg = f'[green]Running Compute Optimizer Report: {report_name} / {self.appConfig.selected_regions}[/green]'
         
         if cached:
             for _ in track(range(1), description=display_msg + ' [yellow]CACHED'):
@@ -192,7 +193,7 @@ class CoReports(ReportProviderBase):
 
             report_name = q.name()
 
-            if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
 
                 self.logger.info(f'Getting status of report {report_name}')
 

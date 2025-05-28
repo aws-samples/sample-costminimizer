@@ -19,6 +19,8 @@ import logging
 from abc import ABC, abstractmethod
 import sys
 
+from ..config.config import Config
+
 
 class InvalidReportInputException(Exception):
     pass
@@ -50,7 +52,7 @@ class ReportProviderBase(ABC):
     def __init__(self, appConfig) -> None:
         
         self.logger = logging.getLogger(__name__)
-        self.appConfig = appConfig
+        self.appConfig = Config()
 
         self.report_input = None
         self.report_directory = None #MUST OVERIDE IN REPORT PROVIDER
@@ -162,13 +164,13 @@ class ReportProviderBase(ABC):
                 self.get_approved_reports().remove(report_object.name())
                 continue
 
-            self.execute_dependent_reports(report_object, self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type)
+            self.execute_dependent_reports(report_object, self.appConfig.cow_execution_type)
 
             self.logger.info(f'Running report {report_name}')
 
             self.run_additional_logic_for_provider(report_object, additional_input_data)
             
-            self.logger.info(f'{report_name}: Requested in {self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type} mode.')
+            self.logger.info(f'{report_name}: Requested in {self.appConfig.cow_execution_type} mode.')
             self.logger.info(f'{report_name}: Running against account #{self.accounts} and region {self.regions}.')
             
             if not self.check_cached_data(report_name, self.accounts, self.regions, self.customer, self.additional_input_data, self.expiration_days):
@@ -320,7 +322,7 @@ class ReportProviderBase(ABC):
         :return: Boolean indicating whether to display
         """
         ''' set display for reports'''
-        if self.appConfig.auth_manager.appInstance.AppliConf.mode == 'module':
+        if self.appConfig.mode == 'module':
             return False
         
         return True
@@ -351,10 +353,7 @@ class ReportProviderBase(ABC):
             # retreive account number from boto3 sts current session
             account = self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts').get_caller_identity()['Account']
 
-            # retreive region from boto3 sts current session
-            region = self.appConfig.auth_manager.aws_cow_account_boto_session.region_name
-            if region is None:
-                region = self.appConfig.selected_regions[0]
+            region = self.appConfig.selected_regions
         except Exception as e:
             msg = f'Error: credentials expired.  Get new credentials before starting the program.'
             self.logger.exception(msg)
@@ -408,7 +407,7 @@ class ReportProviderBase(ABC):
                 epoch_time = float(timestring)
             except:
                 self.logger.error(f'Error in expiring cache file: {cache_file_name_with_timestamp}.')
-                if self.appConfig.auth_manager.appInstance.AppliConf.mode == 'cli':
+                if self.appConfig.mode == 'cli':
                     print(f'Error in expiring cache file: {cache_file_name_with_timestamp}.')
                 else:
                     self.appConfig.alerts['cache_file_error'] = f'Error in expiring cache file: {cache_file_name_with_timestamp}.'
@@ -664,7 +663,7 @@ class ReportProviderBase(ABC):
             dependency_report.run(report_list, display=False, cow_execution_type=cow_execution_type)
             reports_in_progress = dependency_report.reports_in_progress
             
-            if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
                 dependency_report.fetch_data(dependency_report.reports_in_progress,
                                             additional_input_data=None, 
                                             expiration_days=None, 
@@ -729,10 +728,10 @@ class ReportProviderBase(ABC):
         :param execution_id: Execution ID to be written
         """
         '''write execution id to database'''
-        hash = hashlib.md5(self.appConfig.auth_manager.appInstance.report_time.encode('utf-8')).hexdigest()
+        hash = hashlib.md5(self.appConfig.report_time.encode('utf-8')).hexdigest()
         #customer_id = self.appConfig.customers.get_customer_data(self.appConfig.customers.selected_customer)['id']
         try:
-            comment = self.appConfig.auth_manager.appInstance.tag
+            comment = self.appConfig.tag
         except:
             comment = ''
 
@@ -740,7 +739,7 @@ class ReportProviderBase(ABC):
             comment = ''
 
         dependent_report = self.dependent_report if self.dependent_report else ''
-        request = { 'report_id': hash, 'report_name': report_name,  'report_provider': self.name(), 'report_exec_id': report_name, 'parent_report': dependent_report, 'start_time': self.appConfig.auth_manager.appInstance.report_time, 'status': '', 'comment': comment, 'cx_id_id': 'default_customer_id','using_tags': self.appConfig.using_tags}
+        request = { 'report_id': hash, 'report_name': report_name,  'report_provider': self.name(), 'report_exec_id': report_name, 'parent_report': dependent_report, 'start_time': self.appConfig.report_time, 'status': '', 'comment': comment, 'cx_id_id': 'default_customer_id','using_tags': self.appConfig.using_tags}
       
         self.appConfig.database.insert_record(request, 'cow_cowreporthistory')
 
@@ -1020,3 +1019,17 @@ class ReportBase(ABC):
         tag_name = 'resource_tags_user_' + tag_name
         
         return tag_name
+
+    def require_user_provided_region(self)-> bool:
+        '''
+        determine if report needs to have region
+        provided by user'''
+        return False
+    
+    def set_run_in_region(self)-> str:
+        '''
+        if region does not need to be provided
+        by user for report, use this predetermined
+        region
+        '''
+        return 'us-east-1'

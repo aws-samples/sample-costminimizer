@@ -20,6 +20,7 @@ import logging
 from ...report_providers.report_providers import ReportProviderBase
 from rich.progress import track
 from pathlib import Path
+from ...config.config import Config
 
 
 # Required to load modules from vendored subfolder (for clean development env)
@@ -34,7 +35,7 @@ class TaReports(ReportProviderBase):
     def __init__(self, appConfig):
 
         super().__init__(appConfig)
-        self.appConfig = appConfig
+        self.appConfig = Config()
         self.config = appConfig.config
 
         #Array of reports ready to be output to Excel.
@@ -85,7 +86,7 @@ class TaReports(ReportProviderBase):
         '''setup instrcutions for ta report type'''
                 #Array of reports ready to be output to Excel.
         try:
-            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('support')
+            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('support',  self.appConfig.default_selected_region)
         except Exception as e:
             self.appConfig.console.print(f'\n[red]Unable to establish boto session for TrustedAdvisor. \n{e}[/red]')
             sys.exit()
@@ -204,7 +205,7 @@ class TaReports(ReportProviderBase):
 
             report_name = q.name()
 
-            if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
 
                 self.logger.info(f'Getting status of report {report_name}')
 

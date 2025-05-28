@@ -555,7 +555,7 @@ class CowReportComparison(CowReportComparisonBase):
 
     def get_customer_selection(self) -> str:
         '''return the customer name selected'''
-        customer_configuration = ConfigureToolingCommand(self.appConfig).list_configured_customers(list_only=False)
+        customer_configuration = ConfigureToolingCommand().list_configured_customers(list_only=False)
         
         return customer_configuration[0]   
 

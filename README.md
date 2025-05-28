@@ -48,41 +48,100 @@ The tool combines data from multiple AWS cost management services to provide a h
 
 ### Installation and configuration
 ```bash
-# Clone the repository
+
+There are 2 options to install and configure the tool: automatic with Q CLI and manual:
+
+Option 1) Automatic with Q CLI
+
+Warning: before launching the installation, AWS credentials have to be defined in AWS environment variables:
+  AWS_ACCESS_KEY_ID
+  AWS_SECRET_ACCESS_KEY
+  AWS_SESSION_TOKEN
+
+Just execute this bash Q CLI command:
+q chat "can you install the tool CosMinimizer that is availble in the repository git@ssh.gitlab.aws.dev:costminimizer/CostMinimizer.git. Clone this repository into ~/CostMinimizer, create the folder in case it does not exists. Then follow the intallation and configuration instructions contained in  ~/CostMinimizer/README.md to proceed to the installation and configuration of the tool,
+following instructions written in the section called Option 2) Bash 'command instructions, Manual option'."
+
+Option 2) Bash command instructions, Manual option
+
+# 2.1 Clone the repository
 git clone git@github.com:aws-samples/sample-costminimizer.git
 cd CostMinimizer
 
-# Install dependencies
-pip install -r requirements.txt
+# 2.2 Setup python environment
+cd ~/CostMinimizer && python -m venv .venv
+cd ~/CostMinimizer && source .venv/bin/activate (or .venv\Scripts\Activate.ps1 under Windows Powershell)
 
-# Setup and install python tooling
-python setup.py develop
+# 2.3 Install dependencies (should be launched from the .venv environment)
+cd ~/CostMinimizer && source .venv/bin/activate && pip install -r requirements.txt
 
-# Configure the tool
-CostMinimizer --configure
+# 2.4 Setup a Develop version of CostMinimizer tooling on the local disk
+cd ~/CostMinimizer && source .venv/bin/activate && python setup.py develop
+
+# 2.5 Configure the tool
+cd ~/CostMinimizer && source .venv/bin/activate && CostMinimizer --configure
+
+# 2.6 Last step, check the current configuration of the tool
+cd ~/CostMinimizer && source .venv/bin/activate && CostMinimizer --configure --ls-conf
+
+For information, the configuration has the following parameters :
++--------------------------------+------------------------------------+------------------------------------+
+|           config_id            |          aws_cow_account           |                                    |
++--------------------------------+------------------------------------+------------------------------------+
+|        aws_cow_account         |            123456789012            | Your main AWS Account Number (a '12-digit account number')|
+|        aws_cow_profile         |           CostMinimizer            | The name of the AWS profile to be used (in '~/.aws/cow_config' file)|
+|             cur_db             |      athenacurcfn_my_report1       | The CUR Database name, for the CUR checks/requests (like 'customer_cur_data')|
+|           cur_table            |             myreport1              | The CUR Table name, for the CUR checks/requests|
+|           cur_region           |             us-east-1              | The CUR region,for the CUR checks/requests|
+|         cur_s3_bucket          |   s3://bucket-sam-cur-us-east-1/   | The S3 bucket name where the results are saved (like 's3://bucket-sam-cur-1/') (required with --cur option)|
+|            ses_send            |                                    | The SES 'DESTINATION' email address, CostMinimizer results are sent to this email|
+|            ses_from            |        slepetre@amazon.com         | the SES 'SENDER' origin email address, CostMinimizer results are sent using this origin email (optional)|
+|           ses_region           |             eu-west-1              | The SES region where the Simple Email Server is running|
+|            ses_smtp            | email-smtp.eu-west-1.amazonaws.com | The SES email 'SMTP' server where the Simple Email Server is running|
+|           ses_login            |   ses-smtp-user.20241011-151131    | The SES Email 'LOGIN' to access the Simple Email Server is running|
+|          ses_password          |            Password1234            | The SES Email 'PASSWORD' to access the Simple Email Server is running|
+|       costexplorer_tags        |                                    | The costexplorer tags, a list of Cost Tag Keys|
+| costexplorer_tags_value_filter |                                    | The costexplorer tags values filter, provide tag value to filter e.g. Prod*|
+|         graviton_tags          |                                    | The graviton tags, a list of Tag Keys (comma separated and optional)|
+|   graviton_tags_value_filter   |                                    | The graviton tag value filter, provide tag value to filter e.g. Prod*|
+|         current_month          |               FALSE                | The current month, true / false for if report includes current partial month|
+|           day_month            |                                    | The day of the month, when to schedule a run. 6, for the 6th by default|
+|        last_month_only         |               FALSE                | The last month only, Specify true if you wish to generate for only last month|
+|         output_folder          |         /home/slepetre/cow         | !!! DO NOT MODIFY|
+|       installation_mode        |           local_install            | !!! DO NOT MODIFY|
+|      container_mode_home       |             /root/.cow             | !!! DO NOT MODIFY|
++--------------------------------+------------------------------------+------------------------------------+
+
+WARNING: --CUR requires Athena and need a s3 bucket to be specified defined in 'cur_s3_bucket'.
 ```
 
 ### Quick Start
 ```bash
 
-1. Verify your AWS credentials:
-aws sts get-caller-identity        # CostMinimizer is using the AWS credentials defined in environment variables or .aws/
+1. (optional) Verify or Get your AWS credentials:
+aws sts get-caller-identity                     # CostMinimizer is using the AWS credentials defined in environment variables or .aws/
 
-(optional: you can automaticaly register the existing credentials as the default admin one of the tooling:
-costminimizer --configure --auto-update-conf
-Therefore reports will be saved into C:\Users\$USERNAME$\cow\$ACCOUNTID_CREDENTIALS\$ACCOUNTID_CREDENTIALS-2025-04-04-09-46\
-)
+You can get specific STS credentials using assume-role:
+$credentials = aws sts assume-role  --role-arn "arn:aws:iam::123456789012:role/Admin" --role-session-name "costminimizer-session" | ConvertFrom-Json
+$env:AWS_ACCESS_KEY_ID = $credentials.Credentials.AccessKeyId
+$env:AWS_SECRET_ACCESS_KEY = $credentials.Credentials.SecretAccessKey
+$env:AWS_SESSION_TOKEN = $credentials.Credentials.SessionToken
 
-2. List all options for the tooling:
-CostMinimizer --help
+2. Check the current configuration of the tool
+CostMinimizer --configure --ls-conf
 
-3. Run a basic cost analysis:
-CostMinimizer --ce --ta --co --cur # Runs Cost Explorer, Trusted Advisor, Compute Optimizer reports, and CUR Cost and Usage Reports
+3. (optional) Update tool configuration with current credentials:
+CostMinimizer --configure --auto-update-conf    # You can automaticaly register the current AWS credentials into CostMinimizer configuration
 
-4. Generate AI recommendations:
-CostMinimizer -r --ce --cur    # Generates AI recommendations based on report data
+=> As an example, all reports will be saved into a new folder based on $ACCOUNTID_CREDENTIALS and timestamp C:\Users\$USERNAME$\cow\$ACCOUNTID_CREDENTIALS\$ACCOUNTID_CREDENTIALS-2025-04-04-09-46\
 
-5. Ask genAI a question about the cost report:
+4. Run a basic cost analysis:
+CostMinimizer --ce --ta --co --cur              # Runs Cost Explorer, Trusted Advisor, Compute Optimizer reports, and CUR Cost and Usage Reports
+
+5. Generate AI recommendations:
+CostMinimizer -r --ce --cur                     # Generates AI recommendations based on report data
+
+6. Ask genAI a question about the cost report:
 CostMinimizer -q "based on the CostMinimizer.xlsx results provided in attached file, in the Accounts tab of the excel sheets, 
 what is the cost of my AWS service for the year 2024 for the account nammed slepe000@amazon.com ?" -f "C:\Users\slepe000\cow\000538328000\000538328000-2025-04-04-09-46\CostMinimizer.xlsx"
 ```

@@ -143,7 +143,7 @@ class CurIdlenatgateways(CurBase):
             int: The number of rows in the savings dataframe, or 0 if an error occurs.
         """
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
             print(f"Error in counting rows in report_result: {str(e)}")
             return 0
@@ -195,7 +195,7 @@ class CurIdlenatgateways(CurBase):
 
         # execute Athena request definied by p_SQL SQL query and get the results
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -209,7 +209,7 @@ class CurIdlenatgateways(CurBase):
             print(f"No resources found for athena request {p_SQL}.")
         else:
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):
@@ -218,8 +218,7 @@ class CurIdlenatgateways(CurBase):
                     self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
                     self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
                     self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else '',
-                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0, 
-                    self.get_required_columns()[5]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -233,8 +232,8 @@ class CurIdlenatgateways(CurBase):
                     'usage_type',
                     'region',
                     'usage',
-                    'cost',
-                    self.ESTIMATED_SAVINGS_CAPTION
+                    'cost'
+                    #self.ESTIMATED_SAVINGS_CAPTION
             ]
 
     def get_expected_column_headers(self) -> list:
@@ -275,12 +274,12 @@ GROUP BY 1,2,3"""
     # return list of columns values in the excel graph, which is the Column # in excel sheet from [0..N]
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
-        return 5, 1, 5, -1
+        return 4, 1, 4, -1
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [Col1, ..., ColN]
-        return [4,5]
+        return [4]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):

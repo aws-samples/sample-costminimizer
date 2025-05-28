@@ -37,7 +37,7 @@ class CeReports(ReportProviderBase):
     def __init__(self, appConfig):
 
         super().__init__( appConfig)
-        self.appConfig = appConfig
+        self.appConfig = Config()
 
         #Array of reports ready to be output to Excel.
         self.reports = []
@@ -90,7 +90,6 @@ class CeReports(ReportProviderBase):
         return 'Cost Explorer'
 
     def auth(self):
-        '''set authentication, we use the AWS profile to authenticate into the AWS account which holds the CUR/Athena integration'''
         self.profile_name = 'detault'
         self.logger.info(f'Setting {self.name()} report authentication profile to: {self.profile_name}')
     
@@ -172,7 +171,7 @@ class CeReports(ReportProviderBase):
                 else:
                     report_object.addReport( Name, GroupBy, Style, NoCredits, CreditsOnly, RefundOnly, UpfrontOnly, IncSupport, IncTax)
 
-                self.logger.info(f'Running CE query: {report_name} ')
+                self.logger.info(f'Running CostExplorer query: {report_name} ')
             except Exception as e:
                 self.logger.error('Exception occured when during execution of CE query')
                 self.logger.exception(e)
@@ -181,7 +180,7 @@ class CeReports(ReportProviderBase):
 
         report_name = report_object.name()
         
-        display_msg = f'[green]Running CostExplorer Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+        display_msg = f'[green]Running CostExplorer Report: {report_name} / {self.appConfig.selected_regions}[/green]'
         
         if cached:
             for _ in track(range(1), description=display_msg + ' [yellow]CACHED'):
@@ -214,7 +213,7 @@ class CeReports(ReportProviderBase):
 
             report_name = q.name()
 
-            if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
 
                 self.logger.info(f'Getting status of report {report_name}')
 

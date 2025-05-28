@@ -14,6 +14,7 @@ import pandas as pd
 import json
 from ...report_providers.report_providers import ReportProviderBase
 from pathlib import Path
+from ...config.config import Config
 
 
 class CurReports(ReportProviderBase):
@@ -25,7 +26,7 @@ class CurReports(ReportProviderBase):
     def __init__(self, appConfig):
 
         super().__init__(appConfig)
-        self.appConfig = appConfig
+        self.appConfig = Config()
 
         #CUR Reports specific variables 
         self.profile_name = None
@@ -91,16 +92,14 @@ class CurReports(ReportProviderBase):
         # retrieve Athena database information from customer configuration
         try:
             self.cur_s3_bucket = self.appConfig.config['cur_s3_bucket']
-            self.cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
-            self.cur_table = self.appConfig.cur_table_arguments_parsed if hasattr(self.appConfig, 'cur_table_arguments_parsed') else self.appConfig.config['cur_table']
-            self.cur_region = self.appConfig.cur_region_arguments_parsed if hasattr(self.appConfig, 'cur_region_arguments_parsed') else self.appConfig.config['cur_region']
+            self.cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
+            self.cur_table = self.appConfig.arguments_parsed.cur_table if (hasattr(self.appConfig.arguments_parsed, 'cur_table') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_table']
+            self.cur_region = self.appConfig.arguments_parsed.cur_region if (hasattr(self.appConfig.arguments_parsed, 'cur_region')  and self.appConfig.arguments_parsed.cur_region is not None) else self.appConfig.config['cur_region']
         except KeyError as e:
             self.logger.error(f'MissingCurConfigurationParameterException: Missing CUR parameter in report requests: {str(e)}')
             raise
 
         #Athena table name
-        self.cur_db = self.appConfig.cur_db_arguments_parsed if self.appConfig.cur_db_arguments_parsed else self.appConfig.config['cur_db']
-        self.cur_table = self.appConfig.cur_table_arguments_parsed if self.appConfig.cur_table_arguments_parsed else self.appConfig.config['cur_table']
         self.fqdb_name = f'{self.cur_db}.{self.cur_table}'
         self.logger.info(f'Setting {self.name()} report table_name to: {self.fqdb_name}')
 
@@ -166,8 +165,12 @@ class CurReports(ReportProviderBase):
                 region_str = "product_region='"+self.appConfig.selected_regions[0]+"' AND "
 
                 if self.minDate == '' or self.maxDate == '':
-                    self.minDate, self.maxDate = report_object.GetMinAndMaxDateFromCurTable( self.client , self.fqdb_name)
-                if self.maxDate == '':                 
+                    # Get the months_back parameter if provided
+                    months_back = 0
+                    if hasattr(self.appConfig.arguments_parsed, 'cur_month_date_minus_x'):
+                        months_back = self.appConfig.arguments_parsed.cur_month_date_minus_x
+                    self.minDate, self.maxDate = report_object.GetMinAndMaxDateFromCurTable(self.client, self.fqdb_name, months_back=months_back)
+                if self.maxDate == 'N/A':                 
                     max_date = "NOW()"
                 else:
                     max_date = self.maxDate
@@ -191,7 +194,7 @@ class CurReports(ReportProviderBase):
 
         report_name = report_object.name()
         
-        display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+        display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
         
         if cached:
             for _ in track(range(1), description=display_msg + ' [yellow]CACHED'):
@@ -223,7 +226,7 @@ class CurReports(ReportProviderBase):
 
             report_name = q.name()
 
-            if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+            if self.appConfig.cow_execution_type == 'sync':
 
                 self.logger.info(f'Getting status of report {report_name}')
 
@@ -251,7 +254,11 @@ class CurReports(ReportProviderBase):
                             # if  q.report_result dict has member Data
                             if 'Data' in q.report_result[0]:
                                 q.dataframe = q.report_result[0]['Data']
-                                q.output = q.dataframe.to_json()
+                                # test if q.dataframe is not equal to []
+                                if len(q.dataframe) > 0:
+                                    q.output = q.dataframe.to_json()
+                                else:
+                                    q.output = '[]'
                     
                     #dump CUR data to cache
                     #self.write_cache_data(report_name, report, accounts, regions, customer, additional_input_data)

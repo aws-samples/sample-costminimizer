@@ -507,7 +507,7 @@ class TestConfigureTooling:
             mock_app_config.get_regions.assert_called_once_with(selected_accounts=selected_accounts)
             mock_launch_menu.assert_called_once_with(
                 ['us-east-1', 'us-west-2', 'eu-west-1'],
-                title='Select one of the region (no impact on global checks like TA, CO and CE)',
+                title='Select one of the region (no impact on global checks like TA, CUR and CE)',
                 subtitle='-',
                 multi_select=False,
                 show_multi_select_hint=True,

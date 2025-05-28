@@ -7,11 +7,13 @@ __license__ = "Apache-2.0"
 from ..constants import __tooling_name__
 
 import os
-from ..utils.yaml_loader import import_yaml_file
 from pathlib import Path
 
+from ..utils.yaml_loader import import_yaml_file
+from ..patterns.singleton import Singleton
 
-class ToolingVersion:
+
+class ToolingVersion(Singleton):
 
     def __init__(self) -> None:
         self.tooling_internals_from_file = {}
@@ -31,3 +33,7 @@ class ToolingVersion:
             return self.version
         else:
             return internal_version
+        
+    def update_version(self, version) -> str:
+        self.version = version
+        return self.version

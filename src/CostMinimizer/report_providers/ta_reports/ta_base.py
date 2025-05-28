@@ -23,15 +23,15 @@ class TaBase(ReportBase, ABC):
     """    
     def __init__(self, appConfig):
 
-        super().__init__( appConfig)
+        super().__init__(appConfig)
         self.appConfig = appConfig
 
         self.ESTIMATED_SAVINGS_CAPTION = "Estimated_Monthly_Savings"
 
         try:
-            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('trustedadvisor', region_name=self.appConfig.selected_regions[0])
+            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('trustedadvisor', region_name=self.appConfig.default_selected_region)
         except Exception as e:
-            self.appConfig.console.print('\n[red]Unable to establish boto session for TrustedAdvisor. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
+            self.appConfig.console.print(f'\n[red]Unable to establish boto session for TrustedAdvisor. \nPlease verify credentials in ~/.aws/ or Environment Variables like account ID, region and role ![/red]')
             sys.exit()
 
         try:
@@ -122,7 +122,7 @@ class TaBase(ReportBase, ABC):
         try:
             client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
         except Exception as e:
-            self.appConfig.console.print('\n[red]Unable to establish boto session for Organizations. \n{e}[/red]')
+            self.appConfig.console.print(f'\n[red]Unable to establish boto session for Organizations. \n{e}[/red]')
             sys.exit()
 
         paginator = client.get_paginator('list_accounts')

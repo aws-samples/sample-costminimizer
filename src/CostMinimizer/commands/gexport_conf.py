@@ -16,7 +16,7 @@ class ExportConfCommand:
         return
 
     def run(self):
-        ce = CowExportConf(self.appConfig)
+        ce = CowExportConf(self.appConfig) #appInstance dependency removed
         ce.run()
         
         

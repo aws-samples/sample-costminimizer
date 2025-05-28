@@ -8,8 +8,9 @@ from ..constants import __tooling_name__
 
 import yaml
 
-def import_yaml_file(yaml_file):
-    with open(yaml_file, "r") as stream:
+def import_yaml_file(yaml_file, operation="r"):
+    try:
+        with open(yaml_file, operation) as stream:
             try:
                 fh = yaml.safe_load(stream)
             except yaml.scanner.ScannerError as e:
@@ -17,7 +18,9 @@ def import_yaml_file(yaml_file):
             except yaml.YAMLError as e:
                 print(e)
                 raise
-    return fh
+        return fh
+    except Exception as e:
+        raise
 
 def dump_configuration_to_file(dump_file, dict_data) -> bool:
     try:

@@ -7,7 +7,8 @@ __license__ = "Apache-2.0"
 from ..constants import __tooling_name__
 
 from ..report_output_handler.report_output_handler import ReportOutputHandlerBase
-from ..report_output_handler.report_output_gen_ai import ReportOutputGenAi
+from ..genai_providers.bedrock import Bedrock
+from ..genai_providers.genai_providers import GenAIProviders
 from pptx import Presentation
 from pptx.chart.data import CategoryChartData
 from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
@@ -240,7 +241,8 @@ class ReportOutputPptxHandler(ReportOutputPptxHandlerBase):
             #gloabl is stripped out from k2 queries currently
             self.selected_regions.remove('global')
 
-        self.gen_ai_reccomendations_client = ReportOutputGenAi(self.appConfig)
+        self.genai_provider = GenAIProviders()
+        self.gen_ai_reccomendations_client = self.genai_provider.provider.client
         self.trend_spend_by_service = []
         self.analyzed_recommendations = []
 
@@ -292,7 +294,7 @@ class ReportOutputPptxHandler(ReportOutputPptxHandlerBase):
         for service_data in self.services_data:
             df = pd.DataFrame.from_dict(service_data['Data'], orient='columns')
             if self.services_data is not None:
-                gen_ai_data_list = gen_ai_client.run(df, self.gen_ai_reccomendations_client.get_gen_ai_prompt('service_trends'), 'csv', True, 'dataframe')
+                gen_ai_data_list = gen_ai_client.execute( self.get_gen_ai_prompt('service_trends'), df, 'csv', True, 'dataframe')
                 self.trend_spend_by_service.append(gen_ai_data_list)
             else:
                 gen_ai_data_list = None
@@ -304,7 +306,7 @@ class ReportOutputPptxHandler(ReportOutputPptxHandlerBase):
         self.appConfig.console.print(msg)
 
         report_file = self.report_directory / self.appConfig.report_file_name
-        gen_ai_data_list = gen_ai_client.run(report_file, self.gen_ai_reccomendations_client.get_gen_ai_prompt('recommendations'),'xlsx', False, 'file')
+        gen_ai_data_list =  gen_ai_client.execute( gen_ai_client.get_gen_ai_prompt('recommendations'), report_file, 'xlsx', False, 'file')
         
         return gen_ai_data_list
 
@@ -707,7 +709,11 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
 
         # Group recommendations by technical domain
         domain_recommendations = defaultdict(list)
-        
+
+        # test if recommendations is not empty, else return
+        if len(recommendations) == 0:
+            return
+
         for item in recommendations:
             if type(item) == dict:
                 l = item
@@ -724,19 +730,20 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
             domain_recommendations[l['technical domain']].append(l)
 
         for domain, items in domain_recommendations.items():
-            slide, chart_width, chart_height = self.get_default_chart_slide()
-            self.set_slide_title(slide, f'GenAI: {domain} Recommendations')
-
-            # position and size of the bow should represent 90% of the new_slide size
-            x, y, cx, cy = self.center_chart_slide_dimensions( slide.shapes.title.top, slide.shapes.title.height, chart_width, chart_height, int(chart_width*0.9), int(chart_height*0.7))
-
-            text_box = slide.shapes.add_textbox(x, y, cx, cy)
-            text_frame = text_box.text_frame
-            # Enable word wrap and auto-fit text to shape
-            text_frame.word_wrap = True
-            text_frame.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
 
             for item in items:
+                slide, chart_width, chart_height = self.get_default_chart_slide()
+                self.set_slide_title(slide, f'GenAI: {domain} Recommendations')
+
+                # position and size of the bow should represent 90% of the new_slide size
+                x, y, cx, cy = self.center_chart_slide_dimensions( slide.shapes.title.top, slide.shapes.title.height, chart_width, chart_height, int(chart_width*0.9), int(chart_height*0.7))
+
+                text_box = slide.shapes.add_textbox(x, y, cx, cy)
+                text_frame = text_box.text_frame
+                # Enable word wrap and auto-fit text to shape
+                text_frame.word_wrap = True
+                text_frame.auto_fit = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+
                 p = text_frame.add_paragraph()
                 p.text = f"Service: {item['service']}"
                 p.font.size = Pt(24)
@@ -759,114 +766,114 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
         try:
             self.create_disclaimer_slide()
         except:
-            msg='Unable to create disclaimer slide'
+            msg='ERROR : Unable to create disclaimer slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
-        
+            self.appConfig.console.print('[red]'+msg)
+
         try:
             self.create_summary_slide()
         except Exception as e:
-            msg='Unable to create summary slide'
+            msg='ERROR : Unable to create summary slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.create_spend_by_accounts_slide()
         except:
-            msg='Unable to create spend by accounts slide'
+            msg='ERROR : Unable to create spend by accounts slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
         
         try:
             self.create_spend_by_services_slide()
         except:
-            msg='Unable to create spend by services slide'
+            msg='ERROR : Unable to create spend by services slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
         
         try:
             self.create_section_seperator_slide('TA, CO, CUR Recommendations')
         except:
-            msg='Unable to create separator slide for TA, CO, CUR Recommendations'
+            msg='ERROR : Unable to create separator slide for TA, CO, CUR Recommendations'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('COMPUTE')
         except:
-            msg='Unable to create compute recommendations slide'
+            msg='ERROR : Unable to create compute recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
         
         try:
             self.domain_based_recommendations_slide('DATABASE')
         except:
-            msg='Unable to create database recommendations slide'
+            msg='ERROR : Unable to create database recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
         
         try:
             self.domain_based_recommendations_slide('STORAGE')
         except:
-            msg='Unable to create storage recommendations slide'
+            msg='ERROR : Unable to create storage recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('NETWORK')
         except:
             msg='ERROR : Unable to create networking & content delivery recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print("[red]"+msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('ML')
         except:
-            msg='Unable to create machine learning recommendations slide'
+            msg='ERROR : Unable to create machine learning recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('MIGRATION_TRANSFER')
         except:
-            msg='Unable to create migration and transfer recommendations slide'
+            msg='ERROR : Unable to create migration and transfer recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
         
         try:
             self.domain_based_recommendations_slide('MANAGEMENT_GOVERNANCE')
         except:
-            msg='Unable to create management & governance recommendations slide'
+            msg='ERROR : Unable to create management & governance recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('ANALYTICS')
         except:
-            msg='Unable to create analytics recommendations slide'
+            msg='ERROR : Unable to create analytics recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.domain_based_recommendations_slide('APPLICATION_INTEGRATION')
         except:
-            msg='Unable to create application integration recommendations slide'
+            msg='ERROR : Unable to create application integration recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.create_section_seperator_slide('GenAI Recommendations')
         except:
-            msg='Unable to create separator slide for GenAI Recommendations'
+            msg='ERROR : Unable to create separator slide for GenAI Recommendations'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.genai_recommendations_slide( self.analyzed_recommendations)
         except:
-            msg='Unable to create genai recommendations slide'
+            msg='ERROR : Unable to create genai recommendations slide'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
         try:
             self.save_presentation( report_directory)
@@ -874,9 +881,9 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
             self.appConfig.console.print(msg)
             self.logger.info(msg)
         except:
-            msg=f'Unable to save presentation into : {report_directory}'
+            msg=f'ERROR : Unable to save presentation into : {report_directory}'
             self.logger.info(msg)
-            self.appConfig.console.print(msg)
+            self.appConfig.console.print('[red]'+msg)
 
 
     def export_to_csv(self, data, filename):
@@ -890,15 +897,23 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
     def run(self):
         # test if genai-recommendations argument is true
         if self.appConfig.arguments_parsed.genai_recommendations:
-            self.trend_spend_by_service = self.get_trend_spend_by_service_recommendations(self.gen_ai_reccomendations_client)
+            
+            bedrock_gen_ai = Bedrock( self.appConfig)
 
-            # export self.trend_spend_by_service result into a csv file
-            self.export_to_csv( self.trend_spend_by_service, self.report_directory / 'powerpoint_report/trend_spend_by_service_recommendations.csv')
-            if len(self.trend_spend_by_service) > 0:
-                self.analyzed_recommendations = self.get_analyze_recommendations(self.gen_ai_reccomendations_client)
+            # test if '--ce' i.e. CostExplorer as argument is passed when the tooling is launched
+            if self.appConfig.arguments_parsed.ce:
+
+                self.trend_spend_by_service = self.get_trend_spend_by_service_recommendations(bedrock_gen_ai)
+
+                # export self.trend_spend_by_service result into a csv file
+                if len(self.trend_spend_by_service) > 0:
+                    self.export_to_csv( self.trend_spend_by_service, self.report_directory / 'powerpoint_report/trend_spend_by_service_recommendations.csv')
+
+            self.analyzed_recommendations = self.get_analyze_recommendations(bedrock_gen_ai)
 
             # export self.analyzed_recommendations result into a csv file
             if len(self.analyzed_recommendations) > 0:
                 self.export_to_csv(self.analyzed_recommendations, self.report_directory / 'powerpoint_report/analyzed_recommendations.csv')
 
+        # Create PPTX presentation file
         self.create_presentation()

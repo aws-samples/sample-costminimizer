@@ -34,9 +34,9 @@ class CeBase(ReportBase, ABC):
 
         #Array of reports ready to be output to Excel.
         try:
-            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ce')
+            self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ce', region_name=self.appConfig.default_selected_region)
         except Exception as e:
-            self.appConfig.console.print('\n[red]Unable to establish boto session for CostExplorer. \n{e}[/red]')
+            self.appConfig.console.print(f'\n[red]ERROR: Unable to establish boto session for CostExplorer. \n{e}[/red]')
             sys.exit()
 
         self.end = datetime.date.today().replace(day=1)
@@ -139,7 +139,7 @@ class CeBase(ReportBase, ABC):
         try:
             client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
         except Exception as e:
-            self.appConfig.console.print('\n[red]Unable to establish boto session for Organizations. \n{e}[/red]')
+            self.appConfig.console.print(f'\n[red]ERROR: Unable to establish boto session for Organizations. \n{e}[/red]')
             sys.exit()
 
         paginator = client.get_paginator('list_accounts')
@@ -259,7 +259,7 @@ class CeBase(ReportBase, ABC):
                     nextToken = False
                 
             rows = []
-            display_msg = f'[green]Running Cost & Usage Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+            display_msg = f'[green]Running CostExplorer Report: {Name} / {self.appConfig.selected_regions}[/green]'
             for i in track(results, description=display_msg):
                 for v in i['RecommendationDetails']:
                     row = v['InstanceDetails'][list(v['InstanceDetails'].keys())[0]]
@@ -409,7 +409,7 @@ class CeBase(ReportBase, ABC):
                     nextToken = False
         rows = []
         sort = ''
-        display_msg = f'[green]Running Cost & Usage Report: {Name} / {self.appConfig.selected_regions[0]}[/green]'
+        display_msg = f'[green]Running CostExplorer Report: {Name} / {self.appConfig.selected_region}[/green]'
         for v in track(results, description=display_msg):
             row = {'date':v['TimePeriod']['Start']}
             sort = v['TimePeriod']['Start']

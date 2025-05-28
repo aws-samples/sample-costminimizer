@@ -66,6 +66,9 @@ class ToolingDatabase:
     def connect_to_database(self) -> sqlite3.Connection:
         '''create a database if one does not exist'''
         try:
+            # Ensure parent directory exists before connecting
+            os.makedirs(os.path.dirname(self.database_file), exist_ok=True)
+            # SQLite will automatically create the database file if it doesn't exist
             return sqlite3.connect(self.database_file)
         except sqlite3.Error as e:
             self.logger.error(f"Error connecting to database: {e}")
@@ -81,6 +84,7 @@ class ToolingDatabase:
 
     def get_tables_list(self) -> list:
         '''return a list of all table definition function names (minus the _table)'''
+        #TODO these should not be hard coded
         return [
             'cowconfiguration', 
             'customersdefinition', 
@@ -113,7 +117,6 @@ class ToolingDatabase:
             'cow_gravitonconversion': 'cow_gravitonconversion',
             'cow_awspricinglambda': 'cow_awspricinglambda'
             }
-
 
     def create_tables(self) -> None:
         '''loop through the table functions list and create all tables'''
@@ -232,7 +235,7 @@ class ToolingDatabase:
 
         return record
 
-    def fetch_internals_parameters_table(self):
+    def fetch_internals_parameters_table(self) -> dict:
         
         # Fetch all rows and fetchone() returns None when no more rows are available
         rows = self.get_cow_internals_parameters()
@@ -294,7 +297,6 @@ class ToolingDatabase:
         except Exception as e:
             self.logger.error(f"Database error: {str(e)}")
             raise e
-
 
     def update_customer(self, customer_id, customer_name, email_address, aws_profile,
             secrets_aws_profile, athena_s3_bucket, cur_db_name, cur_db_table,
@@ -365,7 +367,6 @@ class ToolingDatabase:
             raise e
 
         cursor.close()
-
 
     def update_record(self, request, table_name, where):
         '''function to abstract the update of records into our database'''
@@ -554,7 +555,6 @@ class ToolingDatabase:
             "ripriceperunit"	FLOAT
         );'''
         return sql
-
 
     # create cowawspricingec2 table that read awsprincing.csv in the folder ./
     def cowawspricingec2_table(self):
@@ -899,21 +899,6 @@ class ToolingDatabase:
         cursor.close()
         return retVal
 
-    def get_cow_internals_parameters(self) -> list:
-        '''return dictionary of cow configuration parameters'''
-
-        cursor = self.con.cursor()
-
-        sql = 'select * from cow_internalsparameters'
-        try:
-            result = cursor.execute(sql)
-        except Exception as e:
-            self.logger.error(f"Database error: {str(e)}")
-            raise e
-
-        return result.fetchall()
-
-
     def get_customer_id(self, customer_name) -> list:
         '''return a list of the customer's ID'''
         sql = f"select cx_id from {self.get_tables_dict()[self.customer_table_name]} where cx_name = ?"
@@ -990,7 +975,6 @@ class ToolingDatabase:
             return retVal
         else:
             return []
-
 
     def get_available_reports(self) -> List[Report]:
         '''return available reports'''
@@ -1084,7 +1068,6 @@ class ToolingDatabase:
         self.logger.info(f"Report '{customer}-{report_time}' deleted.")
         cursor.close()
         return None
-
 
     def update_table_value(self, table_name, column_name, id, new_value, sql_provided=None) -> None:
         '''update value for table where key lookup is cx_id'''

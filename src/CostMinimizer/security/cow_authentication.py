@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 import subprocess
 import datetime
+from typing import Optional
 from ..config.database import ToolingDatabase
 from ..error.error import AuthenticationError
 
@@ -26,6 +27,73 @@ class UnableToRunAccountCredentialsDiscovery(Exception):
 class UnableToWriteToAWSConfigFile(Exception):
     pass
 
+class AuthenticationManager:
+    """Manages AWS authentication and session handling"""
+    def __init__(self):
+        self.cow_authentication = None
+        self.aws_cow_account_boto_session = None
+        from ..config.config import Config
+        self.config = Config()
+        self.logger = logging.getLogger(__name__)
+
+    def get_region_from_cli_agrument(self) -> str:
+        return self.config.arguments_parsed.region
+    
+    def get_region_from_profiles(self) -> str:
+        return self.aws_cow_account_boto_session.region_name
+    
+    def determine_region(self) -> str:
+        '''determine region from cli or profile information'''
+        if self.config.arguments_parsed.region:
+            return self.config.arguments_parsed.region #prefer cli argument
+        elif self.aws_cow_account_boto_session.region_name:
+            return self.aws_cow_account_boto_session.region_name
+        else:
+            return None
+    
+    def setup_authentication(self) -> None:
+        if not self.config.arguments_parsed.version:
+            self.cow_authentication = Authentication()
+            self.aws_cow_account_boto_session = self.configure_boto_session()
+
+            self.config.selected_regions = self.determine_region()
+            self.config.selected_region = self.config.selected_regions
+
+            if not self.aws_cow_account_boto_session: 
+                self.cow_authentication.recreate_all_profiles()
+
+            if self.config.mode == 'cli':
+                self.handle_cli_authentication()
+
+            if not self.test_boto_session():
+                sys.exit()
+
+    def test_boto_session(self) -> bool:
+        try:
+            sts = self.aws_cow_account_boto_session.client('sts')
+            sts.get_caller_identity()
+            return True
+        except Exception as e:
+            self.logger.error(f"Authentication Error: {str(e)}")
+            self.config.console.print(f'\n[red]\nAuthentication Error: {str(e)}[/red]')
+            return False
+            
+    
+    def configure_boto_session(self) -> Optional[boto3.Session]:
+        try:
+            session = self.cow_authentication.create_account_session()
+            if session:
+                self.cow_authentication.log_session_access_key(session)
+            return session
+        except boto3.exceptions.Boto3Error as e:
+            self.logger.error(f"Failed to configure boto session: {str(e)}")
+            return None
+
+    def handle_cli_authentication(self) -> None:
+        login_type = 'aws_profile' #Todo this should come from configuration
+
+        self.cow_authentication.update_login_history(login_type)
+
 class Authentication:
 
     def __init__(self) -> None:
@@ -34,8 +102,8 @@ class Authentication:
         self.container_install_config_filename = Path('/tmp/aws/config')
 
         from ..config.config import Config
-        from ..CostMinimizer import AlertState
-        self.config = Config()
+        from ..error.alerts import AlertState
+        self.appConfig = Config()
         self.alerts = AlertState()
 
         self.set_aws_config_file_osenviron()
@@ -45,11 +113,12 @@ class Authentication:
         if config_filename is None:
             config_filename = self.config_filename
 
-        if 'installation_mode' in self.config.config:
-            if  self.config.config['installation_mode'] in ('container_install'):
+        if 'installation_mode' in self.appConfig.config:
+            if  self.appConfig.config['installation_mode'] in ('container_install'):
                 config_filename = self.container_install_config_filename
 
-        os.environ['AWS_CONFIG_FILE'] = str(config_filename)
+        if not self.appConfig.arguments_parsed.profile:
+            os.environ['AWS_CONFIG_FILE'] = str(config_filename)
 
     def create_cow_awscli_config_directory_path(self, file_path:Path) -> None: 
         try:
@@ -85,11 +154,14 @@ class Authentication:
     def create_account_session(self, profile_name:str = None, aws_cow_account_boto_session:boto3.Session = None) -> boto3.Session: 
         '''Create default session to use with various calls such as pricing API'''
 
-        if profile_name is None:
-            profile_name = f"{self.config.internals['internals']['boto']['default_profile_name']}_profile"
+        if profile_name is None and not self.appConfig.arguments_parsed.profile:
+            profile_name = f"{self.appConfig.internals['internals']['boto']['default_profile_name']}_profile"
+
+        if self.appConfig.arguments_parsed.profile:
+            profile_name = self.appConfig.arguments_parsed.profile
 
         try:
-            aws_cow_account_boto_session = boto3.Session( profile_name=profile_name)
+            aws_cow_account_boto_session = boto3.Session(profile_name=profile_name)
             
             return aws_cow_account_boto_session
         except Exception as e:
@@ -111,7 +183,7 @@ class Authentication:
         try:
             if isinstance(session, boto3.session.Session):
                 self.logger.info(f'Using access key {session.get_credentials().access_key} for session {session.profile_name}')
-                self.config.console.print(f'Using access key [green]{session.get_credentials().access_key}[/green] for session [green]{session.profile_name}[/green]')
+                self.appConfig.console.print(f'Using access key [green]{session.get_credentials().access_key}[/green] for session [green]{session.profile_name}[/green]')
         except:
             self.logger.info(f'Unable to log access key for session.')
 
@@ -122,8 +194,8 @@ class Authentication:
             account_output = subprocess.run(shlex.split(command), capture_output=True)
         except Exception as e:
             print(e)
-            if self.config.mode == 'cli':
-                raise AuthenticationError(e,self.appInstance.AppliConf.mode)
+            if self.appConfig.mode == 'cli':
+                raise AuthenticationError(e,self.appConfig.mode)
 
         if not account_output.returncode:
             for line in account_output.stdout.decode('ascii').splitlines():
@@ -135,8 +207,8 @@ class Authentication:
         e = Exception()
         errorTuple = (str(account_output.stderr),)
         e.args += errorTuple
-        if self.config.mode == 'cli':
-            raise AuthenticationError(e,self.appInstance.AppliConf.mode)
+        if self.appConfig.mode == 'cli':
+            raise AuthenticationError(e,self.appConfig.mode)
 
         return 1
 
@@ -173,7 +245,7 @@ class Authentication:
     def recreate_all_profiles(self, config_filename:Path = None) -> None: 
         try:
             if config_filename is None:
-                if self.config.config.get('installation_mode') in ('container_install'):
+                if self.appConfig.config.get('installation_mode') in ('container_install'):
                     config_filename = self.container_install_config_filename
                 else:
                     config_filename = self.config_filename
@@ -187,7 +259,7 @@ class Authentication:
 
             #write customer profiles
             if len(customers) > 0:
-                customer_profile_role = self.config.internals['internals']['cur_customer_discovery']['role']
+                customer_profile_role = self.appConfig.internals['internals']['cur_customer_discovery']['role']
                 for customer in customers:
                     try:
                         self.create_authentication_profile(customer.Name, customer.PayerAccount, customer.CurRegion, customer_profile_role, customer.EmailAddress, config_filename)
@@ -203,8 +275,8 @@ class Authentication:
                     self.create_authentication_profile(
                         configuration[0][2],
                         str(configuration[0][1]),
-                        self.config.internals['internals']['boto']['default_region'],
-                        self.config.internals['internals']['boto']['default_profile_role'],
+                        self.appConfig.internals['internals']['boto']['default_region'],
+                        self.appConfig.internals['internals']['boto']['default_profile_role'],
                         None,
                         config_filename
                         )
@@ -219,7 +291,7 @@ class Authentication:
 
     def validate_account_credentials(self, profile_name:str, customer_name:str = None) -> bool:
         account_list =[]
-        account_list.append(self.config.config['aws_cow_account'])
+        account_list.append(self.appConfig.config['aws_cow_account'])
 
         try:
             self.check_aws_cow_account_name(account_list)
@@ -288,4 +360,4 @@ class Authentication:
         else:
             raise ValueError('Internal Error: invalid login type provided')
 
-        self.config.database.insert_record({'login_type': login_type, 'login_timestamp': login_timestamp, 'login_cache_expiration': login_cache_expiration, 'login_hash': login_hash}, 'cow_login')
+        self.appConfig.database.insert_record({'login_type': login_type, 'login_timestamp': login_timestamp, 'login_cache_expiration': login_cache_expiration, 'login_hash': login_hash}, 'cow_login')

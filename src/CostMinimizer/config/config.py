@@ -4,6 +4,8 @@
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
 
+__TOOL_CONF_INTERNALS__ = "cm_internals.yaml"
+
 from ..constants import __tooling_name__
 from ..commands.configure_tooling import ConfigureToolingCommand
 
@@ -16,14 +18,20 @@ It interacts with YAML files, databases, and environment variables to set up the
 import yaml
 import os, sys
 import logging
+import sysconfig
+import pandas as pd
 from pathlib import Path
 from ..patterns.singleton import Singleton
 from rich.console import Console
-import pandas as pd
+from datetime import datetime
+from typing import Optional, Dict, List, Any
 
+
+from ..utils.yaml_loader import import_yaml_file, YamlFileSyntaxError
 from ..security.cow_authentication import Authentication
 from ..commands.available_reports import AvailableReportsCommand
 from ..version.version import ToolingVersion
+from ..security.cow_authentication import AuthenticationManager
 from .database import ToolingDatabase
 
 class UnableToLoadCowConfigurationFileException(Exception):
@@ -46,58 +54,138 @@ class Config(Singleton):
 
     def __init__(cls):
         cls.logger = logging.getLogger(__name__)
+        cls.cow_execution_type = 'sync'
+        cls.tag: Optional[str] = None
+        cls.debug: bool = False
         
-        '''Auto discovery of dynamic configuration parameters'''
-        #Path() of users home directory on the system
-        cls.local_home = Path.home()
-        #Path of this config class
-        cls.config_class_path = Path(os.path.dirname(__file__))
-        #Path() of application business logic
-        cls.app_path = cls.config_class_path.parent 
-        #Path() of installation directory
-        cls.install_dir = Path.cwd()
-        #Path() of application root directory
-        cls.conf_dir = cls.app_path / 'conf'
-        cls.console = Console()
-        cls.cur_db_arguments_parsed = None
-        cls.cur_table_arguments_parsed = None
-
-        #Set CM Internals YAML File
-        cls.internals, cls.origin_internals_values = cls.__load_cow_config(
-          config_file=cls.conf_dir / "cow_internals.yaml") #TODO need to change this filename
-
-        #set installation type; if container_deployment_file exists on the system
-        #then the installation type is container
-        cls.container_deployment_file = cls.conf_dir / "container.txt"
-        cls.installation_type = cls.__set_installation_type()
-        #set report directory
-        cls.report_directory = cls.__set_report_directory(cls.installation_type)
-
-        cls.selected_regions = ['us-east-1']
-
-    def setup(cls):
+    def setup(cls, mode='cli'):
         '''setup the cow database and user configuration'''
-        try:
-            if os.getenv('APP_CM_USER_HOME_DIR'):
-                cls.container_host_system_home = Path(os.getenv('APP_CM_USER_HOME_DIR'))
-            else:
-                cls.container_host_system_home = cls.local_home
-            
-            #set report_output_directory; this differs in container vs local install
-            if cls.installation_type == 'container_install':
-                #inside the container this should map to the host system $HOME/cow as discoverd by the env far
-                cls.report_output_directory = cls.container_host_system_home / cls.internals['internals']['reports']['report_output_directory']
-            else:
-                cls.report_output_directory = cls.local_home / cls.internals['internals']['reports']['report_output_directory']
-            
-            cls._setup_database(cls)
-            cls.write_installation_type()
-            cls._setup_user_configuration()
-            cls._setup_internals_parameters()
-        except Exception as e:
-            cls.logger.error(f"Error during setup: {str(e)}")
-            raise
+        cls.console = Console()
+        cls.mode = mode
+        
+        cls.app_path = cls._setup_app_path()
+        cls.conf_dir = cls.app_path / 'conf'
+        cls.installation_type = cls.__set_installation_type()
+        cls.platform = cls._setup_platform()
+        cls.default_selected_region = 'us-east-1' #TODO this should come from parameters
+        cls.internals_file = cls.app_path / 'conf' / __TOOL_CONF_INTERNALS__
+        cls.internals, cls.origin_internals_values = cls.__load_cow_config(config_file=cls.internals_file)
+        cls.report_directory, cls.report_output_directory = cls.__set_report_directory(cls.installation_type)
+        cls.default_report_request = cls.report_output_directory  / cls.internals['internals']['reports']['default_report_request']
+        
+        cls._setup_logging()
+        cls._setup_report_time()
+        cls._setup_database(cls) #setup database class
+        cls.write_installation_type() #write installation type into database configuration table
+        cls._setup_user_configuration() #populate cls.config dictionary with account values
+        cls._setup_internals_parameters() #load tool parameters
 
+    def database_initial_defaults(cls, arguments_parsed=None):
+        '''
+        TODO rename this function as it does not have anything to do with 
+        database initial defaults, rather automated configuration and 
+        the writing of reports to database
+        '''
+
+        #if tool not configured; attempt automatic configuration
+        #TODO in the future this functionality shouold be moved to ConfigureToolingCommand()
+        cls.attempt_automatic_configuration()
+
+        #write all available reports to database
+        cls.write_available_reports_to_database(cls.usertag_support(arguments_parsed))
+
+    def tool_configuration_status(cls) -> bool:
+         '''determine if configuration exists in database'''
+         #TODO come up with better mechinism than output_folder 
+         if (cls.config.get('output_folder') is None):
+            return False
+         return True
+    
+    def prompt_for_automated_configuration(cls) -> None:
+        '''prompt user for automated configuration'''
+        cls.console.print(f'[blue]Tool configuration is not finished.  This appears to be a new installation. [/blue]')
+        cls.console.print(f'[blue]Would you like me to attempt an automatic configuartion based on your authentication variables?[/blue]')
+        answer = input('Enter [y/n]: ')
+
+        if answer == 'y':
+            return True
+        
+        return False
+
+    def attempt_automatic_configuration(cls) -> None:
+        def exit_automatic_configuration(error=True):
+            error_message=f'[blue]Please run [bold]"CostMinimizer --configure"[/bold] to configure your account.[/blue]'
+            if error:
+                cls.console.print(f'[red]Automatic configuration failed. Please run [bold]"CostMinimizer --configure"[/bold] to configure your account.[/red]')
+            cls.console.print(error_message)
+            sys.exit(0)
+        
+        if not cls.tool_configuration_status():
+            if cls.prompt_for_automated_configuration():
+                try:
+                    cls.automate_launch_cow_cust_configure()
+
+                    cls.console.print(f'[green]Automatic configuration successfully performed ![/green]')
+                    cls.console.print(f'[yellow]WELCOME ! This is the first time CostMinimizer is launched, please configure the tooling !')
+                    cls.console.print(f'[yellow]        Select the option 1)    Manual CostMinimizer Tool Configuration (setup my AWS account) !!![/yellow]')
+                    cls.console.print(f'[yellow]        In case you want to use CUR, verify or update the values of cur_db & cur_table"[/yellow]')
+                    ConfigureToolingCommand().run()
+
+                except Exception as e:
+                    exit_automatic_configuration()
+            else:
+                exit_automatic_configuration(error=False)
+    
+    def usertag_support(cls, arguments_parsed=None) -> bool:
+        '''determine if user tags are enabled'''
+        if hasattr(arguments_parsed, 'usertags'):
+            u_tags = arguments_parsed.usertags
+        else:
+            u_tags = False
+        
+        return u_tags
+    
+    def _setup_logging(cls) -> None:
+        log_config = cls.internals['internals']['logging']
+        log_file_path = cls.report_directory / log_config['log_file']
+
+        cls._cleanup_log_file(log_file_path)
+        logging.basicConfig(
+            filename=log_file_path.resolve(),
+            format=log_config['log_format'],
+            level=log_config['log_level_default'],
+            force=True
+        )
+
+    def  _cleanup_log_file(cls, log_file_path: Path) -> None:
+        if log_file_path.is_file():
+            try:
+                os.remove(log_file_path.resolve()) #
+            except FileNotFoundError as r:
+                cls.logger.info(f"Failed to remove log file: {r}")
+            except:
+                raise
+    
+    def _setup_report_time(cls) -> None:
+        cls.start = datetime.now()
+        cls.report_time = cls.start.strftime("%Y-%m-%d-%H-%M")
+        cls.end = None
+
+    def _setup_home_directory(cls) -> Path:
+        '''setup the home directory for the application'''
+        cls.local_home = Path.home()
+        
+        if os.getenv('APP_CM_USER_HOME_DIR'):
+            return Path(os.getenv('APP_CM_USER_HOME_DIR'))
+        else:
+            return cls.local_home
+    
+    def _setup_platform(cls) -> str:
+        return sysconfig.get_platform()
+
+    def _setup_app_path(cls) -> Path:
+        #Path() of application business logic
+        return Path(os.path.dirname(__file__)).parent 
 
     def __setup_default_internals_paramaters(cls) -> str:
         '''setup the default internals parameters'''
@@ -106,6 +194,7 @@ class Config(Singleton):
 internals:
   db_fields_to_update:
     - version
+    - genAI.default_provider
   boto:
     default_profile_name: CostMinimizer
     default_profile_role: Admin
@@ -176,6 +265,14 @@ internals:
     web_client_report_refresh_seconds: 120
     user_tag_discovery: user_tag_discovery.k2
     user_tag_values_discovery: user_tag_values_discovery.cur
+  results_folder:
+    enable_bucket_for_results: False
+    bucket_for_results: aws-athena-query-results-{dummy_value}-us-east-1
+  genAI:
+    default_provider: bedrock
+    default_provider_region: us-east-1
+    default_genai_model: anthropic.claude-3-5-sonnet-20240620-v1:0
+    inference_profile_arn: 
   version: 0.0.1
 """
         return internals_yaml_defaults
@@ -183,6 +280,18 @@ internals:
     def _setup_database(cls, config):
         """Create database and all tables if needed"""
         cls.database = ToolingDatabase()
+
+        # in case the API interfaces are not accessible to get the ec2 instances prices 
+        cls.database.insert_awspricingec2()
+
+        # in case the API interfaces are not accessible to get the db instances prices 
+        cls.database.insert_awspricingdb()
+
+        # in case the API interfaces are not accessible to get the lambda instances prices 
+        cls.database.insert_awspricinglambda()
+
+        # in case the API interfaces are not accessible to get the gravition instances equivalence 
+        cls.database.insert_gravitonconversion()
 
         #process table schema updates
         cls.database.process_table_schema_updates()
@@ -196,14 +305,16 @@ internals:
         - local_install
         '''
 
-        if Path.is_file(cls.container_deployment_file):
+        container_deployment_file = cls.app_path / 'conf' / "container.txt"
+
+        if Path.is_file(container_deployment_file):
             cls.installation_type = 'container_install'
         else:
             cls.installation_type = 'local_install'
 
         return cls.installation_type
       
-    def __set_report_directory(cls, installation_type: str) -> str:
+    def __set_report_directory(cls, installation_type: str) -> Path:
         '''
         set report directory:
 
@@ -211,28 +322,35 @@ internals:
         - cow
         - .cow
         '''
+        home_directory = cls._setup_home_directory()
 
         if installation_type == 'container_install':
           #on container the mapping is to /root/.cow inside the container, on local_install it is $HOME/cow
-          report_directory = cls.local_home / cls.internals['internals']['reports']['report_output_directory_for_container']
+          report_directory = home_directory / cls.internals['internals']['reports']['report_output_directory_for_container']
+          report_output_directory = home_directory / cls.internals['internals']['reports']['report_output_directory']
         else:
           #local_install
           report_directory = cls.local_home / cls.internals['internals']['reports']['report_output_directory']
+          report_output_directory = report_directory
 
-        return report_directory
+        return report_directory, report_output_directory
     
     def __load_cow_config(cls, config_file=None):
         """
         Load COW configuration from a YAML file or use default values.
         """
-        if not os.path.exists(config_file):
-            cls.logger.info(f"Unable to find internals file: {config_file} (searching for values in the database)")
-
         try:
-            with open(config_file, "r") as stream:  # Attempt to open and read the YAML conf file
-                yaml_config = yaml.safe_load(stream)
+            yaml_config = import_yaml_file(config_file, "r")
             origin_internals_values = 'yaml'
-        except:
+        except YamlFileSyntaxError as e:
+            #Syntax errors in yaml are an app breaking error
+            print(f'[Error]: Yaml file syntax: {e}')
+            cls.logger.info(f'[Error] Yaml file syntax: {e}')
+            raise
+        except Exception as e:
+            #File not found is not a breaking error.  Load config from internals.
+            cls.logger.info(f"Unable to find internals file: {config_file} (searching for values in the database)")
+            
             # if internal yaml file does not exists, then load the default factory values from __setup_default_internals_paramaters()
             yaml_config = yaml.safe_load(cls.__setup_default_internals_paramaters())
             origin_internals_values = 'config'
@@ -286,43 +404,39 @@ internals:
             cls.config['aws_access_key_id'] = db_config[0][24]
             cls.config['aws_secret_access_key'] = db_config[0][25]
             cls.config['cur_s3_bucket'] = db_config[0][26]
-            
+    
     def _setup_internals_parameters(cls) -> None:
         '''setup internals parameters from database'''
-
-        # at this point, the cow_internals contains either yaml file values or default factory from CowConfig class if yaml does not exists
-        cow_internals_from_yaml_file_or_defaults = cls.internals 
-
-        #fetch CostMinimizer internals parameters from database if exist
-        db_internals_params = cls.database.fetch_internals_parameters_table()
 
         # Priority of the origin of internals parameters : 
         #   1) DB if exists 
         #   2) yaml file if exists 
-        #   3) CowConfig class defaults values
+        #   3) Config class defaults values
+
+        #fetch CostMinimizer internals parameters from database if exist
+        db_internals_params = cls.database.fetch_internals_parameters_table()
 
         # if internals parameters exist in the database
-        if len(db_internals_params) > 0:
-            cls.internals = db_internals_params
+        if db_internals_params:
+            #cls.internals = db_internals_params
 
             # if internals yaml file exist also
             if (cls.origin_internals_values == 'yaml'):
                
                 # force the update of specific fields in the databases like version number
                 try:
-                    list_of_fields_to_update_in_db = cow_internals_from_yaml_file_or_defaults['internals']['db_fields_to_update']
+                    list_of_fields_to_update_in_db = cls.internals['internals']['db_fields_to_update']
                     if (len(list_of_fields_to_update_in_db) == 0):
                         list_of_fields_to_update_in_db = ['internals.version']
                 except:
                     list_of_fields_to_update_in_db = []
 
-                cls.database.update_internals_parameters_table_from_yaml_file(cow_internals_from_yaml_file_or_defaults, '', list_of_fields_to_update_in_db)
+                cls.database.update_internals_parameters_table_from_yaml_file(cls.internals, '', list_of_fields_to_update_in_db)
                 cls.logger.info(f'Successfully loaded internals parameters from the database & internals yaml file found => Fieds modified: {list_of_fields_to_update_in_db}')
             else:
                 cls.logger.info(f'Successfully loaded internals parameters from the database, but internals yaml file not found (no db fields modified)')
                 
-                # init value of version in ToolingVersion class from value contained in the DB
-                ToolingVersion.version = cls.internals['internals']['version']
+                ToolingVersion.update_version(cls, cls.internals['internals']['version'])
 
         # if no paramters are already stored in the database
         else:
@@ -331,16 +445,18 @@ internals:
             cls.database.write_internals_parameters_table(cls.internals)
             cls.console.print(f'[green]\nSuccessfully write internals parameters from yaml file (or default if not exists) to database ![/green]')
 
-    def write_installation_type(cls):
-        """
-        Write the determined installation type to the database.
-        """
-        '''set if the installation is inside of a container'''
-
+    def setup_authentication(cls) -> None:
         '''
-        The container deployment process will put a file 'container.txt' 
-        inside the conf directory. If we have this file here, we are inside 
-        a container
+        setup authentication
+        '''
+
+        #setup authentication
+        cls.auth_manager = AuthenticationManager()
+        cls.auth_manager.setup_authentication()
+
+    def write_installation_type(cls) -> None:
+        '''
+        write or update the installation type into the configuration database
         '''
         
         table_name = 'cow_configuration'
@@ -355,50 +471,26 @@ internals:
             #If a record already exists in the CostMinimizer database
             config_id = result[0]
             sql = 'UPDATE "{}" SET "{}" = ? WHERE "config_id" = ?'.format(table_name, column_name)
-            cls.database.update_table_value(table_name, 'installation_mode', config_id, 'new_value', sql_provided=sql)
+            cls.database.update_table_value(table_name, 'installation_mode', config_id, cls.installation_type, sql_provided=sql)
         else:
             #If a record DOES NOT exist in the database (fresh install perhaps)
             request = {
                 "installation_mode": cls.installation_type
             }
             cls.database.insert_record(request, table_name)
-            
-    def database_initial_defaults(cls, appInstance, arguments_parsed=None):
-        
-        if hasattr(arguments_parsed, 'usertags'):
-            u_tags = arguments_parsed.usertags
-        else:
-            u_tags = False
 
-        #write all available reports to database
-        cls.write_available_reports_to_database(appInstance, u_tags)
-        
-    def write_available_reports_to_database(cls, appInstance, usertags=False):
+    def write_available_reports_to_database(cls, usertags=False):
         """
         Write all available reports to the database.
         """
-
-        if (cls.config.get('output_folder') is None):
-            cls.console.print(f'No output folder specified in config file. Attempting automatic configuration.')
-            
-            try:
-                cls.automate_launch_cow_cust_configure()
-
-                cls.console.print(f'[green]Automatic configuration successfully performed ![/green]')
-                cls.console.print(f'[yellow]WELCOME ! This is the first time CostMinimizer is launched, please configure the tooling !')
-                cls.console.print(f'[yellow]        Select the option 1)    Manual CostMinimizer Tool Configuration (setup my AWS account) !!![/yellow]')
-                cls.console.print(f'[yellow]        In case you want to use CUR, verify or update the values of cur_db & cur_table"[/yellow]')
-                ConfigureToolingCommand(cls.auth_manager.appInstance).run()
-
-            except Exception as e:
-                cls.console.print(f'[red]Error during initial configuration. Please run [bold]"CostMinimizer --configure"[/bold] to configure your account.[/red]')
-                sys.exit(0)
         
         cls.report_file_name = cls.internals['internals']['reports']['report_output_name']
         cls.writer = pd.ExcelWriter(cls.config['output_folder'] + cls.report_file_name, engine='xlsxwriter')
 
-        if not appInstance.config_manager.appConfig.arguments_parsed.version:
-            cls.reports = AvailableReportsCommand(appInstance, cls.writer).get_all_available_reports()
+        if not cls.arguments_parsed.version:
+            reports_result = AvailableReportsCommand(cls.writer).get_all_available_reports()
+            cls.reports = reports_result
+            cls.report_classes = reports_result
             table_name = 'cow_availablereports'
 
             #truncate table first
@@ -435,11 +527,11 @@ internals:
                     }
                     cls.database.insert_record(request, table_name)
                 
-    # retrieve the default credentials of current session
     def automate_launch_cow_cust_configure(cls) -> tuple:
         """
         Automatically configure COW customer settings using current AWS session credentials.
         """
+        # retrieve the default credentials of current session
         # Create an STS client
         sts_client = cls.auth_manager.aws_cow_account_boto_session.client('sts')
 
@@ -600,12 +692,31 @@ internals:
         cache_settings = ''
         
         return cache_settings
-        
-    # For backward compatibility with code expecting a CowConfig instance  
-    class CowConfigWrapper:
-        def __init__(self, cm_config_instance):
-            self.appConfig = cm_config_instance
+
+    def validate_database_configuration(self) -> bool:
+        """
+        Validate the database configuration.
+
+        :return: True if the configuration is valid, False otherwise
+        """
+        '''validate configuration table has entry in the database'''
+        if 'configure' not in self.arguments_parsed:
+            if len(self.internals) == 0:
+                return False
+
+        return True
+
+    def handle_missing_configuration(self) -> None:
+        message = 'CostMinimizer configuration does not exist. Run CostMinimizer --configure and select option 1.'
+        self.logger.info(message)
+        print(message)
+        sys.exit(0)
+
+    # class CowConfigWrapper:
+    #     # For backward compatibility with code expecting a CowConfig instance  
+    #     def __init__(self, cm_config_instance):
+    #         self.appConfig = cm_config_instance
             
-    def get_cow_config_wrapper(cls):
-        """Returns a CowConfig-compatible wrapper around this instance"""
-        return cls.CowConfigWrapper(cls)
+    # def get_cow_config_wrapper(cls):
+    #     """Returns a CowConfig-compatible wrapper around this instance"""
+    #     return cls.CowConfigWrapper(cls)

@@ -14,9 +14,10 @@ class NotImplementedException(Exception):
 class ImportConfCommand:
 
     def __init__(self, appConfig) -> None:
-        self.appConfig = appConfig
+        from ..config.config import Config
+        self.appConfig = Config()
         return
 
     def run(self):
-        ci = CowImportConf(self.appConfig)
+        ci = CowImportConf(self.appConfig) #appInstance dependency removed
         ci.run()

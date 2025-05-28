@@ -1,0 +1,85 @@
+internals:
+  db_fields_to_update:
+    - version
+    - 'genAI.default_provider'
+    - 'genAI.default_provider_region'
+    - 'genAI.default_genai_model'
+  boto:
+    default_profile_name: CostMinimizer
+    default_profile_role: Admin
+    default_region: us-east-1
+    default_secret_name: CostMinimizer_secret
+  comparison:
+    column_group_by: CostType
+    column_report_name: CostDomain
+    column_savings: estimated_savings
+    filename: comparison.xlsx
+    include_details_in_xls: 'No'
+    name_xls_main_sheet: 0-Cost_Pillar
+    reports_directory: reports
+  cur_customer_discovery:
+    aws_profile: '{dummy_value}_profile'
+    db_name: customer_cur_data
+    region: us-east-1
+    role: AthenaAccess
+    aws_cow_s3_bucket: s3://aws-athena-query-results-{dummy_value}-us-east-1/
+    secrets_aws_profile: '{dummy_value}_profile'
+    table: customer_all
+  cur_reports:
+    cur_directory: cur_reports
+    lookback_period: 1
+    report_directory: reports
+  ce_reports:
+    ce_directory: ce_reports
+    lookback_period: 1
+    report_directory: reports
+  co_reports:
+    co_directory: co_reports
+    lookback_period: 1
+    report_directory: reports
+  ta_reports:
+    ta_directory: ta_reports
+    lookback_period: 1
+    report_directory: reports
+  ec2_reports:
+    ec2_directory: ec2_reports
+    lookback_period: 1
+    report_directory: reports
+  database:
+    database_directory_for_container: .cow
+    database_directory_for_local: cow
+    database_file: CostMinimizer.db
+  logging:
+    log_directory: cow
+    log_file: CostMinimizer.log
+    log_format: '%(asctime)s - %(process)d  - %(name)s - %(levelname)s - %(message)s'
+    log_level_default: INFO
+    logger_config: logger.yaml
+  reports:
+    account_discovery: customer_account_discovery.cur
+    async_report_complete_filename: async_report_complete.txt
+    async_run_filename: async_run.txt
+    cache_directory: cache_data
+    default_decrypted_report_request: report_request_decrypted.yaml
+    default_encrypted_report_request: report_request_encrypted.yaml
+    default_report_request: report_request.yaml
+    expire_file_cache: 1
+    report_output_directory: cow
+    report_output_directory_for_container: .cow
+    report_output_name: CostMinimizer.xlsx
+    reports_directory: report_providers
+    reports_module_path: CostMinimizer.report_providers
+    selection_file: .selection.json
+    tmp_folder: .tmp
+    web_client_report_refresh_seconds: 120
+    user_tag_discovery: user_tag_discovery.k2
+    user_tag_values_discovery: user_tag_values_discovery.cur
+  results_folder:
+    enable_bucket_for_results: False
+    bucket_for_results: aws-athena-query-results-{dummy_value}-us-east-1
+  genAI:
+    default_provider: bedrock
+    default_provider_region: us-east-1
+    default_genai_model: anthropic.claude-3-5-sonnet-20240620-v1:0
+    inference_profile_arn: 
+  version: 0.0.1

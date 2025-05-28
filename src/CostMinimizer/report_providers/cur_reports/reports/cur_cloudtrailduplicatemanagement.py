@@ -68,7 +68,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
             return 0.0
 
     def _set_recommendation(self):
-        self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend on duplicate CloudTrail management events.'''
+        self.recommendation = f'''Returned {self.count_rows()} rows summarizing customer monthly spend on duplicate CloudTrail management events. The report includes trail names to help identify specific trails causing duplication.'''
 
     def calculate_savings(self):
         """Calculate potential savings ."""
@@ -89,9 +89,9 @@ class CurCloudtrailduplicatemanagement(CurBase):
 
     def count_rows(self) -> int:
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
-            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+            self.appConfig.logger.warning(f"Error in {self.name()}: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -136,7 +136,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
         self.set_chart_type_of_excel()
 
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -150,15 +150,16 @@ class CurCloudtrailduplicatemanagement(CurBase):
             print(f"No resources found for athena request {p_SQL}.")
         else:
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):
                 data_dict = {
                     self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
                     self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0.0,
-                    self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0.0
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else '',
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0,
+                    self.get_required_columns()[4]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0
                 }
                 data_list.append(data_dict)
 
@@ -170,6 +171,7 @@ class CurCloudtrailduplicatemanagement(CurBase):
         return [
                     'usage_account_id',
                     'product_region_code',
+                    'trail_name',
                     'cost',
                     self.ESTIMATED_SAVINGS_CAPTION
             ]
@@ -177,20 +179,48 @@ class CurCloudtrailduplicatemanagement(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
+    def get_cloudtrail_names(self, account_id, region):
+        """Get CloudTrail trail names for a specific account and region"""
+        try:
+            # Create a session with the specified account and region
+            session = self.appConfig.auth_manager.aws_cow_account_boto_session.client.Session()
+            cloudtrail_client = session.client('cloudtrail', region_name=region)
+            
+            # List trails in the account
+            response = cloudtrail_client.list_trails()
+            trails = response.get('Trails', [])
+            
+            # Extract trail names and return as a list
+            trail_names = [trail.get('Name', 'Unknown') for trail in trails]
+            return trail_names
+        except Exception as e:
+            self.logger.error(f"Error retrieving CloudTrail names: {str(e)}")
+            return ["Unknown"]
+    
     def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
         # This method needs to be implemented with the specific SQL query for CloudTrail duplicate management events
 
-        l_SQL= f"""SELECT 
-line_item_usage_account_id, 
-product_region_code, 
-sum(line_item_unblended_cost) as cost 
-FROM {fqdb_name} 
-WHERE 
-{account_id} 
-line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-AND product_product_name = 'AWS CloudTrail' 
-AND line_item_usage_type like '%PaidEventsRecorded%' 
-group by 1,2;"""
+        l_SQL= f"""WITH trail_data AS (
+  SELECT 
+    line_item_usage_account_id, 
+    product_region_code,
+    line_item_resource_id,
+    sum(line_item_unblended_cost) as cost 
+  FROM {fqdb_name} 
+  WHERE 
+    {account_id} 
+    line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
+    AND product_product_name = 'AWS CloudTrail' 
+    AND line_item_usage_type like '%PaidEventsRecorded%' 
+  GROUP BY 1, 2, 3
+) 
+SELECT 
+  t.line_item_usage_account_id, 
+  t.product_region_code, 
+  COALESCE(t.line_item_resource_id, 'Unknown Trail') as trail_name, 
+  t.cost 
+FROM trail_data t 
+ORDER BY t.line_item_usage_account_id, t.product_region_code, t.cost DESC;"""
 
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
@@ -227,7 +257,7 @@ group by 1,2;"""
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
-        return [2,3]
+        return [3,4]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):

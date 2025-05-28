@@ -11,12 +11,12 @@ Factory module for creating command objects based on CLI arguments.
 This module implements the Factory pattern to instantiate the appropriate command class.
 """
 
+import sys
 from argparse import Namespace
 from .available_reports import AvailableReportsCommand
 from .configure_tooling import ConfigureToolingCommand
 from .run_tooling import RunToolingRun
 from .version import VersionCommand
-from .print_help import PrintHelpCommand
 from .gimport_conf import ImportConfCommand
 from .gexport_conf import ExportConfCommand
 from .question import Question, QuestionSQL
@@ -53,18 +53,18 @@ class CommandFactory:
         # Determine the appropriate command class based on the arguments
         if arguments.version is True:
             _class = VersionCommand(app)
-        elif arguments.dump_configuration:
+        elif arguments.dump_configuration or arguments.ls_conf:
             _class = ExportConfCommand(app)
         elif arguments.import_dump_configuration:
             _class = ImportConfCommand(app)
         elif arguments.configure:
-            _class = ConfigureToolingCommand(app)
+            _class = ConfigureToolingCommand()
         elif arguments.available_reports:
             _class = AvailableReportsCommand(app)
         elif arguments.question:
             _class = Question(arguments,app)
         elif arguments.question_sql:
-            _class = QuestionSQL(arguments,app)
+            _class = QuestionSQL()
         elif arguments.ce:
             _class = RunToolingRun(app)
         elif arguments.co:
@@ -74,7 +74,7 @@ class CommandFactory:
         elif arguments.cur:
             _class = RunToolingRun(app)
         else:
-            _class = PrintHelpCommand(app)
+            sys.exit()
 
         # Instantiate and return the selected command class
         return _class

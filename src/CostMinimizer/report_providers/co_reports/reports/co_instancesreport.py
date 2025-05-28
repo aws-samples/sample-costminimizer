@@ -11,6 +11,8 @@ import boto3
 import pandas as pd
 from rich.progress import track
 
+from ....config.config import Config
+
 class CoInstancesreport(CoBase):
 
     def get_report_parameters(self) -> dict:
@@ -85,7 +87,6 @@ class CoInstancesreport(CoBase):
     def get_required_columns(self) -> list:
         return ['accountId', 'region', 'instanceName', 'finding', 'recommendation', 'migrationEffort', 'platformDifferences', 'platformDetails', self.ESTIMATED_SAVINGS_CAPTION]
 
-
     def get_expected_column_headers(self) -> list:
         return ['accountId', 'region', 'instanceName', 'finding', 'recommendation', 'migrationEffort', 'platformDifferences', 'platformDetails', self.ESTIMATED_SAVINGS_CAPTION]
 
@@ -116,7 +117,7 @@ class CoInstancesreport(CoBase):
     def count_rows(self) -> int:
         '''Return the number of rows found in the dataframe'''
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
             self.appConfig.console.print(f"Error in counting rows: {str(e)}")
             return 0
@@ -151,10 +152,10 @@ class CoInstancesreport(CoBase):
         
         # Create EC2 client to get instance details
         # Create boto3 EC2 client 
-        ec2_client = boto3.client('ec2', region_name=region)
+        ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=region)
 
         if display:
-            display_msg = f'[green]Running Cost & Usage Report: {report_name} / {region}[/green]'
+            display_msg = f'[green]Running Compute Optimizer Report: {report_name} / {region}[/green]'
         else:
             display_msg = ''
         for recommendation in track(recommendation_list, description=display_msg):
@@ -238,3 +239,9 @@ class CoInstancesreport(CoBase):
     def get_group_by(self):
         # [ColX1, ColX2,...]
         return [1]
+    
+    def require_user_provided_region(self)-> bool:
+        '''
+        determine if report needs to have region
+        provided by user'''
+        return True

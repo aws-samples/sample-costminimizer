@@ -291,13 +291,13 @@ class CowReportController(CowReportControllerBase):
 
             try:
                 #sync execution
-                if self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type == 'sync':
+                if self.appConfig.cow_execution_type == 'sync':
                     s = datetime.now()
 
                     provider.fetch_data(provider.reports_in_progress, type='base')
 
                 else:
-                    raise InvalidCowExecutionType(f'Invalid CostMinimizer execution type: {self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type}')
+                    raise InvalidCowExecutionType(f'Invalid CostMinimizer execution type: {self.appConfig.cow_execution_type}')
 
             except InvalidCowExecutionType as e:
                 self.logger.error(f"Invalid execution type: {str(e)}")
@@ -341,18 +341,18 @@ class CowReportController(CowReportControllerBase):
             self.all_providers_completed_reports.extend(completed_reports)
             self.all_providers_failed_reports.extend(failed_reports)
 
-    def display_menu_for_reports(self, title:str, customer_report_folders:list, multi_select=True, show_multi_select_hint=True, show_search_hint=True):
-        # display menu for reports
-        subtitle = title
-        menu_options_list = launch_terminal_menu(
-            customer_report_folders,
-            title=title,
-            subtitle=subtitle,
-            multi_select=multi_select,
-            show_multi_select_hint=show_multi_select_hint,
-            show_search_hint=show_search_hint)
+    # def display_menu_for_reports(self, title:str, customer_report_folders:list, multi_select=True, show_multi_select_hint=True, show_search_hint=True):
+    #     # display menu for reports
+    #     subtitle = title
+    #     menu_options_list = launch_terminal_menu(
+    #         customer_report_folders,
+    #         title=title,
+    #         subtitle=subtitle,
+    #         multi_select=multi_select,
+    #         show_multi_select_hint=show_multi_select_hint,
+    #         show_search_hint=show_search_hint)
 
-        return menu_options_list
+    #     return menu_options_list
 
     # JSR this is already defined below
     # def get_menu_selection_for_async_reports(self) -> list:
@@ -392,53 +392,53 @@ class CowReportController(CowReportControllerBase):
         else:
             return menu_options_list
     
-    def get_menu_selection_for_async_reports(self) -> list:
-        '''display menu for reports and return the menu selection'''
+    # def get_menu_selection_for_async_reports(self) -> list:
+    #     '''display menu for reports and return the menu selection'''
 
-        #get all distinct reports from database
-         # JSR TODO: Make this a function in the database class
-        sql = 'SELECT DISTINCT(start_time), comment FROM "main"."cow_cowreporthistory"'
-        try:
-            result = self.appConfig.database.select_records(sql, rows='all')
-        except Exception as e:
-            self.logger.error(f"Database query failed: {e}")
-            return []
+    #     #get all distinct reports from database
+    #      # JSR TODO: Make this a function in the database class
+    #     sql = 'SELECT DISTINCT(start_time), comment FROM "main"."cow_cowreporthistory"'
+    #     try:
+    #         result = self.appConfig.database.select_records(sql, rows='all')
+    #     except Exception as e:
+    #         self.logger.error(f"Database query failed: {e}")
+    #         return []
 
-        #glob for the folder and combine customer name into the folder
-        menu_options = []
-        for row in result:
-            if len(row) > 0:
-                folder_date_glob_pattern = f'*{row[0]}*'
-                try:
-                    found_folder_with_customer_name = glob.glob(str(self.appConfig.report_directory) + '/' + folder_date_glob_pattern) #list
-                except Exception as e:
-                    self.logger.error(f"File system operation failed: {e}")
-                    continue
-            if len(row) == 2 and found_folder_with_customer_name:
-                try:
-                    if Path(found_folder_with_customer_name[0]).is_dir():
-                        # Don't use 'stem', use 'name'. https://docs.python.org/3/library/pathlib.html#pathlib.PurePath.name
-                        folder = Path(found_folder_with_customer_name[0]).name
-                        folder_tag = row[1]
-                        menu_options.append(folder + ' | ' + folder_tag)
-                except Exception as e:
-                    self.logger.error(f"File system operation failed: {e}")
-                    continue
+    #     #glob for the folder and combine customer name into the folder
+    #     menu_options = []
+    #     for row in result:
+    #         if len(row) > 0:
+    #             folder_date_glob_pattern = f'*{row[0]}*'
+    #             try:
+    #                 found_folder_with_customer_name = glob.glob(str(self.appConfig.report_directory) + '/' + folder_date_glob_pattern) #list
+    #             except Exception as e:
+    #                 self.logger.error(f"File system operation failed: {e}")
+    #                 continue
+    #         if len(row) == 2 and found_folder_with_customer_name:
+    #             try:
+    #                 if Path(found_folder_with_customer_name[0]).is_dir():
+    #                     # Don't use 'stem', use 'name'. https://docs.python.org/3/library/pathlib.html#pathlib.PurePath.name
+    #                     folder = Path(found_folder_with_customer_name[0]).name
+    #                     folder_tag = row[1]
+    #                     menu_options.append(folder + ' | ' + folder_tag)
+    #             except Exception as e:
+    #                 self.logger.error(f"File system operation failed: {e}")
+    #                 continue
 
-        #display menu for reports
-        menu_selection = self.display_menu_for_reports(title='Select report to check status', customer_report_folders=menu_options, multi_select=False, show_multi_select_hint=False, show_search_hint=False)
+    #     #display menu for reports
+    #     menu_selection = self.display_menu_for_reports(title='Select report to check status', customer_report_folders=menu_options, multi_select=False, show_multi_select_hint=False, show_search_hint=False)
 
-        #obtain the date stamp from the menu selection
-        menu_selection = menu_selection[0].split('|')[0].strip()
+    #     #obtain the date stamp from the menu selection
+    #     menu_selection = menu_selection[0].split('|')[0].strip()
 
-        #match app start time to that of the selection from the menu
-        pattern = r'\d{4}-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12][0-9]|3[01])-(?:0?[0-9]|1[0-9]|2[0-3])-\d{2}'
-        match = re.search(pattern, menu_selection)
+    #     #match app start time to that of the selection from the menu
+    #     pattern = r'\d{4}-(?:0?[1-9]|1[0-2])-(?:0?[1-9]|[12][0-9]|3[01])-(?:0?[0-9]|1[0-9]|2[0-3])-\d{2}'
+    #     match = re.search(pattern, menu_selection)
 
-        if isinstance(match, re.Match):
-            menu_selection = match[0]
+    #     if isinstance(match, re.Match):
+    #         menu_selection = match[0]
 
-        return menu_selection
+    #     return menu_selection
 
 
     def run(self):
@@ -447,10 +447,10 @@ class CowReportController(CowReportControllerBase):
         """
         # run the report controller
         #run any setup instructions for the controller
-        if self.appConfig.auth_manager.appInstance.AppliConf.mode == 'cli':
+        if self.appConfig.mode == 'cli':
             with self.appConfig.console.status("Report Controller: Importing report providers..."):
                 self.report_providers = self.import_reports()
-        elif self.appConfig.auth_manager.appInstance.AppliConf.mode == 'module':
+        elif self.appConfig.mode == 'module':
             self.report_providers = self.import_reports()
 
         self.enabled_reports = self.appConfig.reports.get_all_enabled_reports()
@@ -489,12 +489,12 @@ class CowReportController(CowReportControllerBase):
             
             #run each providers query logic
 
-            if self.appConfig.auth_manager.appInstance.AppliConf.mode == 'cli':
+            if self.appConfig.mode == 'cli':
                 self.appConfig.console.print(f'[green]Running reports syncronously for [yellow]{p.name()} [green]provider...\n')
 
             s = datetime.now()
             # execute run() function defined in 
-            self.reports_in_progress[p.name()] = p.run(type='base', cow_execution_type=self.appConfig.auth_manager.appInstance.AppliConf.cow_execution_type)
+            self.reports_in_progress[p.name()] = p.run(type='base', cow_execution_type=self.appConfig.cow_execution_type)
 
 
             e = datetime.now()

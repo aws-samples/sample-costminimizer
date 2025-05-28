@@ -11,17 +11,19 @@ from ..utils.yaml_loader import import_yaml_file
 from pathlib import Path
 from ..utils.yaml_loader import dump_configuration_to_file
 
+
 DEFAULT_dump_global_config = f'/dump_global_config_{__tooling_name__}.yaml'
 
 class CowExportConf:
 
     def __init__(self, appInstance) -> None:
-
-        self.appInstance = appInstance
-        self.appConfig = appInstance.config_manager.appConfig
+        #ToDo remove appInstance
+        # self.appInstance = appInstance
+        from ..config.config import Config
+        self.appConfig = Config()
         self.app_path = Path(os.path.dirname(__file__))
 
-        internals_file = self.app_path.parent / f'conf/{__tooling_name__}_internals.yaml'
+        internals_file = self.appConfig.internals_file
 
         if internals_file.is_file():
             cow_internals = import_yaml_file(internals_file)
@@ -48,6 +50,9 @@ class CowExportConf:
             "output_folder",
             "installation_mode",
             "container_mode_home",
+            "cur_db",
+            "cur_table",
+            "cur_region",
             "aws_cow_s3_bucket",
             "ses_send",
             "ses_from",
@@ -64,11 +69,9 @@ class CowExportConf:
             "last_month_only",
             "aws_access_key_id",
             "aws_secret_access_key",
-            "cur_s3_bucket",
-            "cur_db",
-            "cur_table",
-            "cur_region"]
-       
+            "cur_s3_bucket"
+        ]
+
         dict_zip = dict(zip(l_headers,aws_account_data[0]))
         return dict_zip
     
@@ -78,14 +81,22 @@ class CowExportConf:
 
         l_existing_aws_cow_account_conf = {'aws_account' : dict(self.aws_account_configured_as_dict())}
 
-        l_all_customer_data = {'customers': dict(self.aws_customers_configured_as_dict())}
+        l_all_customer_data = {'customers': dict(self.aws_customers_configured_as_dict())} #TODO we do not need this in CM implementation
 
         l_existing_aws_cow_account_conf.update( dict(l_all_customer_data))
-        if dump_configuration_to_file(l_dump_filename, l_existing_aws_cow_account_conf):
-            self.appConfig.console.print(f"[green]YAML global configuration successfully dumped: {l_dump_filename} !\n")
+        
+        if self.appConfig.arguments_parsed.ls_conf:
+            self.appConfig.console.print(f'[green]YAML global configuration: {l_dump_filename} \n')
             self.appConfig.console.print(l_existing_aws_cow_account_conf)
-            
-            
+            self.appConfig.console.print(f'\n[green]Internals Configruation: \n')
+            self.appConfig.console.print(self.appConfig.internals)
+            return
+        elif self.appConfig.arguments_parsed.dump_configuration:
+            if dump_configuration_to_file(l_dump_filename, l_existing_aws_cow_account_conf):
+                self.appConfig.console.print(f"[green]YAML global configuration successfully dumped: {l_dump_filename} !\n")
+                self.appConfig.console.print(l_existing_aws_cow_account_conf)
+            return
+                     
     def aws_customers_configured_as_dict(self) -> dict:
         '''Return customer configuration for dump'''
 

@@ -9,6 +9,34 @@ import pandas as pd
 import time
 import sqlparse
 from rich.progress import track
+import boto3
+import logging
+
+# Add DynamoDB client class
+class Dynamodb:
+    def __init__(self, region, account=None):
+        """Initialize DynamoDB client with region and account"""
+        self.client = boto3.client('dynamodb', region_name=region)
+        self.account = account
+        self.region = region
+    
+    def describe_table(self, table_name):
+        """Describe a DynamoDB table"""
+        try:
+            response = self.client.describe_table(TableName=table_name)
+            return response
+        except Exception as e:
+            logging.error(f"Error describing table {table_name}: {e}")
+            raise e
+    
+    def list_global_tables(self):
+        """List global tables in the region"""
+        try:
+            response = self.client.list_global_tables()
+            return response
+        except Exception as e:
+            logging.error(f"Error listing global tables: {e}")
+            return {"globalTables": []}
 
 class CurDynamodblegacyglobaltablescost(CurBase):
     """
@@ -53,7 +81,7 @@ class CurDynamodblegacyglobaltablescost(CurBase):
         return "processed"
 
     def disable_report(self):
-        return True
+        return False
 
     def get_estimated_savings(self, sum=True) -> float:
         self._set_recommendation()
@@ -92,9 +120,9 @@ class CurDynamodblegacyglobaltablescost(CurBase):
 
     def count_rows(self) -> int:
         try:
-            return self.report_result[0]['Data'].shape[0]
+            return self.report_result[0]['Data'].shape[0] if not self.report_result[0]['Data'].empty else 0
         except Exception as e:
-            self.appConfig.logger.warning(f"Error in counting rows: {str(e)}")
+            self.appConfig.logger.warning(f"Error in {self.name()}: {str(e)}")
             return 0
 
     def run_athena_query(self, athena_client, query, s3_results_queries, athena_database):
@@ -131,6 +159,31 @@ class CurDynamodblegacyglobaltablescost(CurBase):
             l_msg = f"Query failed with state: {response['QueryExecution']['Status']['StateChangeReason']}"
             raise Exception(l_msg)
 
+    def process_check_data(self, account, region, client, result) -> list:
+        """Process global tables data to identify legacy tables"""
+        self.logger.info(f'Processing global tables data for account: {account} region: {region}')
+        dynamodb_client = Dynamodb(region, account)
+        data_list = []
+        
+        for global_table in result.get('globalTables', []):
+            data_dict = {
+                'accountId': account,
+                'region': region,
+                'global_table_name': global_table.get('globalTableName', '')
+            }
+            
+            try:
+                # Try to get table details to determine version
+                table = dynamodb_client.describe_table(global_table.get('globalTableName', ''))
+                data_dict['global_table_version'] = table.get('table', {}).get('globalTableVersion', '')
+            except Exception as e:
+                self.logger.info(f'Base global table not found in account: {account} region: {region}')
+                data_dict['global_table_version'] = ''
+            
+            data_list.append(data_dict)
+        
+        return data_list
+
     def addCurReport(self, client, p_SQL, range_categories, range_values, list_cols_currency, group_by, display = False, report_name = ''):
         self.graph_range_values_x1, self.graph_range_values_y1, self.graph_range_values_x2,  self.graph_range_values_y2 = range_values
         self.graph_range_categories_x1, self.graph_range_categories_y1, self.graph_range_categories_x2,  self.graph_range_categories_y2 = range_categories
@@ -138,7 +191,7 @@ class CurDynamodblegacyglobaltablescost(CurBase):
         self.set_chart_type_of_excel()
 
         try:
-            cur_db = self.appConfig.cur_db_arguments_parsed if (hasattr(self.appConfig, 'cur_db_arguments_parsed') and self.appConfig.cur_db_arguments_parsed is not None) else self.appConfig.config['cur_db']
+            cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
             response = self.run_athena_query(client, p_SQL, self.appConfig.config['cur_s3_bucket'], cur_db)
         except Exception as e:
             l_msg = f"Athena Query failed with state: {e} - Verify tooling CUR configuration via --configure"
@@ -146,34 +199,84 @@ class CurDynamodblegacyglobaltablescost(CurBase):
             self.logger.error(l_msg)
             return
 
-        data_list = []
+        cur_data_list = []
 
         if len(response) == 0:
             print(f"No resources found for athena request {p_SQL}.")
         else:
             if display:
-                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions[0]}[/green]'
+                display_msg = f'[green]Running Cost & Usage Report: {report_name} / {self.appConfig.selected_regions}[/green]'
             else:
                 display_msg = ''
             for resource in track(response[1:], description=display_msg):
                 data_dict = {
                     self.get_required_columns()[0]: resource['Data'][0]['VarCharValue'] if 'VarCharValue' in resource['Data'][0] else '',
-                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else 0,
-                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0.0,
-                    self.get_required_columns()[3]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0.0
+                    self.get_required_columns()[1]: resource['Data'][1]['VarCharValue'] if 'VarCharValue' in resource['Data'][1] else '',
+                    self.get_required_columns()[2]: resource['Data'][2]['VarCharValue'] if 'VarCharValue' in resource['Data'][2] else 0,
+                    self.get_required_columns()[3]: resource['Data'][3]['VarCharValue'] if 'VarCharValue' in resource['Data'][3] else 0.0,
+                    self.get_required_columns()[4]: resource['Data'][4]['VarCharValue'] if 'VarCharValue' in resource['Data'][4] else 0.0
                 }
-                data_list.append(data_dict)
+                cur_data_list.append(data_dict)
 
-            df = pd.DataFrame(data_list)
+            # Create DataFrame from CUR data
+            cur_df = pd.DataFrame(cur_data_list)
+
+            # test if df is empty, if yes skip the rest of the function
+            if not cur_df.empty:
+                # Get global tables data for each region
+                global_tables_data = []
+                region = self.appConfig.selected_region
+                try:
+                    dynamodb_client = Dynamodb(region)
+                    result = dynamodb_client.list_global_tables()
+                    for account in cur_df['line_item_usage_account_id'].unique():
+                        processed_data = self.process_check_data(account, region, None, result)
+                        global_tables_data.extend(processed_data)
+                except Exception as e:
+                    self.logger.error(f"Error getting global tables for region {region}: {e}")
+                
+                # Create DataFrame from global tables data
+                if global_tables_data:
+                    global_tables_df = pd.DataFrame(global_tables_data)
+                    
+                    # Merge CUR data with global tables data
+                    if not global_tables_df.empty and not cur_df.empty:
+                        merged_df = pd.merge(
+                            cur_df,
+                            global_tables_df,
+                            left_on='global_table_name',
+                            right_on='global_table_name',
+                            how='left'
+                        )
+                        
+                        # Filter for legacy global tables (version 2017.11.29)
+                        legacy_tables_df = merged_df[
+                            (merged_df['global_table_version'] == '2017.11.29') | 
+                            (merged_df['global_table_version'] == '')  # Include tables where version couldn't be determined
+                        ]
+                        
+                        if not legacy_tables_df.empty:
+                            df = legacy_tables_df
+                        else:
+                            df = cur_df
+                    else:
+                        df = cur_df
+                else:
+                    df = cur_df
+            else:
+                df = []
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
     def get_required_columns(self) -> list:
         return [
+                    'accountId',
+                    'region',
                     'global_table_name',
                     'sum_usage_amount',
                     'estimated_savings',
-                    self.ESTIMATED_SAVINGS_CAPTION
+                    self.ESTIMATED_SAVINGS_CAPTION,
+                    'global_table_version'
             ]
 
     def get_expected_column_headers(self) -> list:
@@ -183,6 +286,8 @@ class CurDynamodblegacyglobaltablescost(CurBase):
         # This method needs to be implemented with the specific SQL query for legacy DynamoDB global tables cost
 
         l_SQL = f"""SELECT 
+line_item_usage_account_id, 
+product_region,
 SPLIT_PART(line_item_resource_id, 'table/', 2) AS global_table_name, 
 SUM(CAST(line_item_usage_amount AS DOUBLE)) AS sum_line_item_usage_amount, 
 SUM(CAST(line_item_blended_cost AS DECIMAL(16, 8))*.3) AS estimated_savings 
@@ -193,6 +298,8 @@ line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND
 AND line_item_product_code = 'AmazonDynamoDB' 
 and line_item_usage_type like '%ReadCapacityUnit%' 
 GROUP BY 
+line_item_usage_account_id, 
+product_region,
 SPLIT_PART(line_item_resource_id, 'table/', 2)"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records

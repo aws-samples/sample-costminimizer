@@ -9,13 +9,15 @@ from ..constants import __tooling_name__
 from rich import print
 from rich.layout import Layout
 import tabulate as tabulate
+
 from ..report_controller.report_controller import CowReportController
 
 class AvailableReportsCommand:
     
-    def __init__(self, appInstance, writer=None) -> None:
-        self.appInstance = appInstance
-        self.appConfig = appInstance.config_manager.appConfig
+    def __init__(self, writer=None) -> None:
+        #Todo remove appInstance
+        from ..config.config import Config
+        self.appConfig = Config()
         self.layout = Layout()
         self.writer = writer
             
@@ -25,7 +27,7 @@ class AvailableReportsCommand:
 
         providers = CowReportController(self.appConfig, self.writer).import_reports( force_all_providers_true=True)
 
-        if self.appInstance.AppliConf.mode == 'cli':
+        if self.appConfig.mode == 'cli':
             self.appConfig.console.rule( f"{__tooling_name__} Tooling Available Reports", style="white on blue")
             #print("")
 
@@ -36,8 +38,10 @@ class AvailableReportsCommand:
 
         for provider in providers:
             reports = provider(self.appConfig).get_available_reports(return_available_report_objects=True)
-
-            all_available_reports[provider] = reports
+            # Filter out reports that have disable_report() set to True
+            enabled_reports = [report for report in reports if not report.disable_report(self)]
+            
+            all_available_reports[provider] = enabled_reports
 
         tab = []
         tab.append( ('OPTIMIZER TOOL', 'NAME OF CHECK', 'COST OPTIMIZATION TITLE'))     
@@ -52,7 +56,7 @@ class AvailableReportsCommand:
         self.appConfig.console.print(tabulate.tabulate(tab, headers="firstrow", tablefmt="pretty"))
         self.appConfig.console.print(f'\n # of checks : {len(tab)}\n')
 
-        if self.appInstance.AppliConf.mode == 'module':
+        if self.appConfig.mode == 'module':
             return all_available_reports
 
     def get_report_providers(self) -> list:
@@ -60,10 +64,12 @@ class AvailableReportsCommand:
         return CowReportController(self.appConfig, self.writer).import_reports( force_all_providers_true=False)
 
     def get_all_available_reports(self) -> list:
-        '''return list of all available reports'''
+        '''return list of all available reports that are not disabled'''
         all_reports = []
         for provider in self.get_report_providers():
             reports = provider(self.appConfig).get_available_reports(return_available_report_objects=True)
-            all_reports.extend(reports)
+            # Filter out reports that have disable_report() set to True
+            enabled_reports = [report for report in reports if not report.disable_report(self)]
+            all_reports.extend(enabled_reports)
 
         return all_reports

@@ -1,5 +1,20 @@
+import os
+
 from ..utils.system_validations import determine_os
 
+
+def clear_cli_terminal(mode):
+        """
+        Clear the CLI terminal screen.
+        """
+        #clear the console screen in cli mode
+        if mode == 'cli':
+            # For Windows
+            if os.name == 'nt': #TODO need verify if this works
+                os.system('cls')
+            # For Unix/Linux/MacOS
+            else:
+                os.system('clear')
 
 def launch_terminal_menu(list_menus, title, subtitle, multi_select=True, show_multi_select_hint=True, show_search_hint=True, exit_when_finished=True) :
     # IF USING CURSES MENU
