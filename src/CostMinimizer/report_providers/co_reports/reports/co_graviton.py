@@ -3,6 +3,7 @@
 
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
+
 from ....constants import __tooling_name__
 
 from ..co_base import CoBase
@@ -29,14 +30,14 @@ class CoGraviton(CoBase):
         return 'COMPUTE'
 
     def description(self): #required - see abstract class
-        return '''Compute Optimizer recommendations.'''
+        return '''Compute Optimizer recommendations for Graviton ARM64.'''
 
     def long_description(self):
         return f'''AWS Compute Optimizer Main View:
         This report provides an overview of AWS Compute Optimizer recommendations for your resources.
         Compute Optimizer uses machine learning to analyze your resource utilization metrics and identify optimal AWS Compute resources.
         The report includes:
-        - Recommendations for EC2 instances, EBS volumes, Lambda functions, and ECS services
+        - Recommendations for EC2 instances that may be cost optimized with a migration to Graviton ARM64
         - Potential performance improvements and cost savings
         Use this view to identify opportunities for rightsizing your resources, improving performance, and reducing costs across your AWS infrastructure.'''
 
@@ -70,29 +71,17 @@ class CoGraviton(CoBase):
 
     def get_required_columns(self) -> list:
         return [
-            'instanceId', 
-            'currentInstanceType', 
-            'platformDetails', 
-            'recommendInstanceType', 
+            'account_id', 
+            'instance_arn', 
+            'instance_name', 
+            'current_instance_type', 
             'finding', 
-            'migrationEffort', 
-            'savingsValue', 
-            'monthlyCost', 
-            'currency', 
+            'number_of_recommendations', 
+            'recommended_instance_type',
             self.ESTIMATED_SAVINGS_CAPTION]
 
     def get_expected_column_headers(self) -> list:
-        return [
-            'instanceId', 
-            'currentInstanceType', 
-            'platformDetails', 
-            'recommendInstanceType', 
-            'finding', 
-            'migrationEffort', 
-            'savingsValue', 
-            'monthlyCost', 
-            'currency', 
-            self.ESTIMATED_SAVINGS_CAPTION]
+        return self.get_required_columns()
 
     def disable_report(self) -> bool:
         return False
@@ -140,59 +129,92 @@ class CoGraviton(CoBase):
         Then: [$ EC2 Eligible] * [%Price Delta + %Perf Delta] = $ Saving
         """
         try:
-            # Default optimization factors
-            price_delta = 0.20  # 20% cost reduction
-            perf_delta = 0.10   # 10% performance improvement
-
             df = self.get_report_dataframe()
 
             # if df is empty then return 0.0
             if df.empty:
                 return 0.0
-
-            # Calculate total EC2 spend
-            total_ec2 = df['monthlyCost'].sum()
-
-            # Filter out Windows instances and calculate their cost
-            windows_cost = df[df['platformDetails'].str.contains('windows', case=False, na=False)]['monthlyCost'].sum()
-
-            # Filter out existing Graviton instances and calculate their cost
-            graviton_cost = df[df['currentInstanceType'].str.contains('g', case=False, na=False)]['monthlyCost'].sum()
-
-            # Calculate eligible spend for Graviton migration
-            eligible_spend = total_ec2 - windows_cost - graviton_cost
-
-            # Calculate total potential savings
-            total_savings = eligible_spend * (price_delta + perf_delta)
-
-            #self.set_estimate_savings(total_savings)
-            return total_savings
+            else:
+                return float(df[self.ESTIMATED_SAVINGS_CAPTION].sum())
 
         except Exception as e:
             raise RuntimeError(f"Error calculating Graviton savings: {str(e)}") from e
 
     def sql(self, client, region, account, display = True, report_name = ''):
-        type = 'chart' #other option table
+        '''
+        This function is called by the report engine to get the data for the report.
 
-        # implement object of InstanceReport class
-        from ..co_base import InstanceReport
+        This function returns data from the Compute Optimizer get_ec2_instance_recommendations method. 
+        We filter for only recommendations with AWS_ARM64.
+        https://tinyurl.com/mttmdvnb
 
-        IR = InstanceReport(self.appConfig)
+        The estimated savings returned are the savings that are ranked #1.  
+        '''
 
-        # call do_work function of IR object
-        # results is a list of dictionaries
-        # each dictionary contains information about an instance
-        # such as instance ID, instance type, storage size, storage cost, and monthly cost
+        ttype = 'chart' #other option table
 
-        results = IR.get_recommendations_with_costs( region=region, account=account, display=display, report_name=report_name)
-        df = pd.DataFrame( results)
-        self.report_result.append({'Name':self.name(),'Data':df, 'Type':type, 'DisplayPotentialSavings':True})
+        recommendationPreferences={
+            'cpuVendorArchitectures': [ 'AWS_ARM64' ]
+            }
+
+        try:
+            response = client.get_ec2_instance_recommendations(recommendationPreferences=recommendationPreferences)
+        except:
+            raise
+        
+        results_list = []
+        if response and 'instanceRecommendations' in response:
+            for recommendation in response['instanceRecommendations']:
+                account = recommendation['accountId']
+                instance_arn = recommendation['instanceArn']
+                instance_name = recommendation['instanceName']
+                current_instance_type = recommendation['currentInstanceType']
+                finding = recommendation['finding']
+
+                number_of_recommendations = len(recommendation['recommendationOptions'])
+
+                if number_of_recommendations == 0:
+                    recommended_instance_type = ''
+                    estimated_savings = 0.0
+                elif number_of_recommendations == 1:
+                    recommended_instance_type = recommendation['recommendationOptions'][0]['instanceType']
+                    estimated_savings = recommendation['recommendationOptions'][0]['savingsOpportunity']['estimatedMonthlySavings']['value']
+                elif number_of_recommendations > 1:
+                    for option in recommendation['recommendationOptions']:
+                        if option['rank'] == 1:
+                            recommended_instance_type = option['instanceType']
+                            estimated_savings = option['savingsOpportunity']['estimatedMonthlySavings']['value']
+                
+                results_list.append({
+                    'account_id': account,
+                    'instance_arn': instance_arn,
+                    'instance_name': instance_name,
+                    'current_instance_type': current_instance_type,
+                    'finding': finding,
+                    'number_of_recommendations': number_of_recommendations,
+                    'recommended_instance_type': recommended_instance_type,
+                    self.ESTIMATED_SAVINGS_CAPTION: estimated_savings
+                })
+        else:
+            results_list.append({
+                'account_id': account,
+                'instance_arn': '',
+                'instance_name': '',
+                'current_instance_type': '',
+                'finding': '',
+                'number_of_recommendations': 0,
+                'recommended_instance_type': '',
+                self.ESTIMATED_SAVINGS_CAPTION: ''
+            })
+
+        df = pd.DataFrame(results_list)
+        self.report_result.append({'Name':self.name(),'Data':df, 'Type':ttype, 'DisplayPotentialSavings':False})
 
         return self.report_result
 
     # return chart type 'chart' or 'pivot' or '' of the excel graph
     def set_chart_type_of_excel(self):
-        self.chart_type_of_excel = 'pivot'
+        self.chart_type_of_excel = None
         return self.chart_type_of_excel
 
     # return range definition of the categories in the excel graph,  which is the Column # in excel sheet from [0..N]
@@ -208,12 +230,12 @@ class CoGraviton(CoBase):
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [ColX1, ColX2,...]
-        return [8,10]
+        return [8]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX1, ColX2,...]
-        return [2,3]
+        return [1,2]
     
     def require_user_provided_region(self)-> bool:
         '''

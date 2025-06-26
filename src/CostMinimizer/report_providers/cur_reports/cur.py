@@ -116,7 +116,7 @@ class CurReports(ReportProviderBase):
         expiration_days=None, 
         type=None,
         display=True,
-        cow_execution_type=None) -> None:
+        cow_execution_type=None) -> list:
         '''
         run cur report provider
 
@@ -159,6 +159,12 @@ class CurReports(ReportProviderBase):
     def execute_report(self, report_object, query, display=True, cached=False):
         def run_query( report_object, display, report_name):
             try:
+                # Start by checking the CUR version (legacy or v2.0)
+                l_cur_version = self.appConfig.precondition_reports.cur_type
+                l_cur_resource_id_exists = self.appConfig.precondition_reports.resource_id_column_exists
+                if not l_cur_version in ['v2.0', 'legacy']:
+                    self.logger.error('CUR type neither v2.0 nor legacy. Please build a new CUR in the AWS billing console !')
+                    return
 
                 payer_str = "bill_payer_account_id='"+self.appConfig.config['aws_cow_account']+"' AND "
                 account_str = "line_item_usage_account_id LIKE '%' AND " #+self.appConfig.config['aws_cow_account']
@@ -170,11 +176,12 @@ class CurReports(ReportProviderBase):
                     if hasattr(self.appConfig.arguments_parsed, 'cur_month_date_minus_x'):
                         months_back = self.appConfig.arguments_parsed.cur_month_date_minus_x
                     self.minDate, self.maxDate = report_object.GetMinAndMaxDateFromCurTable(self.client, self.fqdb_name, months_back=months_back)
-                if self.maxDate == 'N/A':                 
-                    max_date = "NOW()"
-                else:
-                    max_date = self.maxDate
-                CurQuery = report_object.sql( self.fqdb_name, payer_str, account_str, region_str, max_date)
+                # check if self.minDate or self.maxDate are empty or not a valid Date
+                if self.maxDate == 'N/A':
+                    self.maxDate = "NOW()"
+                if self.minDate == 'N/A':
+                    self.minDate = "DATE_ADD(CURRENT_DATE, INTERVAL -1 MONTH)"
+                CurQuery = report_object.sql( self.fqdb_name, payer_str, account_str, region_str, self.maxDate, l_cur_version, l_cur_resource_id_exists)
 
                 v_SQL=CurQuery.get("query", "")
 

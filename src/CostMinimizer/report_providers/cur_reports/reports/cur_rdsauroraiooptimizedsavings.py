@@ -193,65 +193,80 @@ class CurRdsauroraiooptimizedsavings(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for Amazon Aurora I/O optimization savings
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            resource_select = "SPLIT_PART(line_item_resource_id, ':', 7) as \"line_item_resource_id\""
+            resource_where = "AND (line_item_resource_id LIKE '%cluster:cluster-%' OR line_item_resource_id LIKE '%db:%')"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' as \"line_item_resource_id\""
+            resource_where = ""
+            resource_group = ""
 
+        if (current_cur_version == 'v2.0'):
+            product_database_engine_condition = "product['database_engine'] IN ('Aurora MySQL','Aurora PostgreSQL')"
+            line_item_product_code_condition = "product['product_name']"
+        else:
+            product_database_engine_condition = "product_database_engine IN ('Aurora MySQL','Aurora PostgreSQL')"
+            line_item_product_code_condition = "line_item_product_code"
+        
         l_SQL = f"""WITH compute_spend as ( 
 SELECT 
 line_item_usage_account_id, 
-SPLIT_PART(line_item_resource_id, ':', 7) as "line_item_resource_id", 
-line_item_product_code, 
+{resource_select}, 
+{line_item_product_code_condition}, 
 SUM(line_item_usage_amount) AS compute_usage_usage_amount, 
 SUM(line_item_unblended_cost) AS compute_usage_unblended_cost, 
 SUM((CASE 
-WHEN ("line_item_line_item_type" = 'DiscountedUsage') THEN "reservation_effective_cost" 
-WHEN ("line_item_line_item_type" = 'RIFee') THEN ("reservation_unused_amortized_upfront_fee_for_billing_period" + "reservation_unused_recurring_fee") 
-WHEN (("line_item_line_item_type" = 'Fee') 
+WHEN (\"line_item_line_item_type\" = 'DiscountedUsage') THEN \"reservation_effective_cost\" 
+WHEN (\"line_item_line_item_type\" = 'RIFee') THEN (\"reservation_unused_amortized_upfront_fee_for_billing_period\" + \"reservation_unused_recurring_fee\") 
+WHEN ((\"line_item_line_item_type\" = 'Fee') 
 ) THEN 0 
-ELSE "line_item_unblended_cost" 
-END)) "spend", 
+ELSE \"line_item_unblended_cost\" 
+END)) \"spend\", 
 'compute' as type_spend 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-AND (line_item_resource_id LIKE '%cluster:cluster-%' OR line_item_resource_id LIKE '%db:%') 
-AND product_database_engine IN ('Aurora MySQL','Aurora PostgreSQL') 
+{resource_where}
+AND {product_database_engine_condition} 
 AND line_item_usage_amount != 0.0 
 AND line_item_usage_type NOT LIKE '%InstanceUsageIOOptimized%' 
 GROUP BY 
-line_item_product_code, 
-line_item_usage_account_id, 
-line_item_resource_id 
+{line_item_product_code_condition}, 
+line_item_usage_account_id{resource_group}
 ), 
 storage_spend as ( 
 SELECT 
 line_item_usage_account_id, 
-SPLIT_PART(line_item_resource_id, ':', 7) as "line_item_resource_id", 
-line_item_product_code, 
-SUM(line_item_unblended_cost) AS "spend", 
+{resource_select}, 
+{line_item_product_code_condition}, 
+SUM(line_item_unblended_cost) AS \"spend\", 
 'storage' as type_spend 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_usage_start_date BETWEEN DATE_ADD('month', -1, {max_date}) AND {max_date} 
+line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 AND line_item_usage_amount != 0.0 
 AND line_item_usage_type NOT LIKE '%IO-OptimizedStorageUsage%' 
 AND line_item_usage_type LIKE '%Aurora:StorageUsage' 
 GROUP BY 
-line_item_product_code, 
-line_item_usage_account_id, 
-line_item_resource_id 
+{line_item_product_code_condition}, 
+line_item_usage_account_id{resource_group}
 ), 
 io_spend as ( 
 SELECT 
 line_item_usage_account_id, 
-SPLIT_PART(line_item_resource_id, ':', 7) as "line_item_resource_id", 
-line_item_product_code, 
-SUM(line_item_unblended_cost) as "spend", 
+{resource_select}, 
+{line_item_product_code_condition}, 
+SUM(line_item_unblended_cost) as \"spend\", 
 'io' as type_spend 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -259,18 +274,17 @@ AND line_item_usage_type LIKE '%Aurora:StorageIOUsage'
 AND line_item_line_item_type IN ('DiscountedUsage', 'Usage') 
 GROUP BY 
 line_item_usage_account_id, 
-line_item_resource_id, 
-line_item_product_code 
+{line_item_product_code_condition}{resource_group}
 ), 
 combined_compute_and_storage as ( 
 SELECT 
-compute_spend.line_item_product_code as "product_code", 
-compute_spend.line_item_resource_id as "compute_resource_id", 
-storage_spend.line_item_resource_id as "storage_resource_id", 
-compute_spend.type_spend as "type_of_spend_1", 
-storage_spend.type_spend as "type_of_spend_2", 
-compute_spend.spend as "compute_total_spend", 
-storage_spend.spend as "storage_total_spend" 
+compute_spend.line_item_product_code as \"product_code\", 
+compute_spend.line_item_resource_id as \"compute_resource_id\", 
+storage_spend.line_item_resource_id as \"storage_resource_id\", 
+compute_spend.type_spend as \"type_of_spend_1\", 
+storage_spend.type_spend as \"type_of_spend_2\", 
+compute_spend.spend as \"compute_total_spend\", 
+storage_spend.spend as \"storage_total_spend\" 
 FROM compute_spend 
 LEFT JOIN storage_spend on compute_spend.line_item_resource_id = storage_spend.line_item_resource_id 
 ) 
@@ -278,13 +292,13 @@ SELECT
 product_code, 
 compute_resource_id, 
 storage_resource_id, 
-io_spend.line_item_resource_id as "io_resource_id", 
+io_spend.line_item_resource_id as \"io_resource_id\", 
 type_of_spend_1, 
 type_of_spend_2, 
-io_spend.type_spend as "type_of_spend_3", 
+io_spend.type_spend as \"type_of_spend_3\", 
 compute_total_spend, 
 storage_total_spend, 
-io_spend.spend as "io_total_spend" 
+io_spend.spend as \"io_total_spend\" 
 FROM 
 combined_compute_and_storage 
 LEFT JOIN io_spend on combined_compute_and_storage.storage_resource_id = io_spend.line_item_resource_id;"""

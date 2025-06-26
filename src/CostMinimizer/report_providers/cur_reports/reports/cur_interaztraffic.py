@@ -346,46 +346,37 @@ class CurInteraztraffic(CurBase):
         """
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
         """
         Generates the SQL query for retrieving Inter-AZ traffic data.
 
         This method constructs an SQL query to fetch data about Inter-AZ traffic from the AWS Cost and Usage Report.
         The query focuses on usage and cost data for data transfer between Availability Zones.
-
-        line_item_usage_account_id,  -- AWS account ID
-        line_item_resource_id,       -- Resource identifier (e.g., EC2 instance ID)
-        line_item_usage_type,        -- Type of usage (focuses on DataTransfer-Regional-Bytes)
-        SUM(line_item_usage_amount) as USAGE,  -- Total data transfer amount
-        SUM(line_item_unblended_cost) as COST  -- Total cost of data transfer
-
-        Args:
-        fqdb_name (str): The fully qualified database name to query against.
-
-        Returns:
-        dict: A dictionary containing the formatted SQL query under the key 'query'.
-
-        SQL Query Explanation:
-        - SELECT: Chooses the relevant columns from the CUR data.
-        - FROM: Specifies the database table to query.
-        - WHERE: Filters for usage line items related to regional data transfer.
-        - GROUP BY: Aggregates data by account, resource, and usage type.
-        - ORDER BY: Sorts results by cost in descending order to show highest costs first.
         """
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            select_fields = "line_item_usage_account_id, line_item_resource_id,"
+            group_by_fields = "GROUP BY 1,2,3"
+        else:
+            select_fields = "line_item_usage_account_id, 'Unknown Resource' as line_item_resource_id,"
+            group_by_fields = "GROUP BY 1,2,3"
+
         # Construct the SQL query using an f-string for dynamic table name insertion
         l_SQL = f"""SELECT 
-line_item_usage_account_id, 
-line_item_resource_id, 
+{select_fields}
 line_item_usage_type, 
 SUM(line_item_usage_amount) as USAGE, 
 SUM(line_item_unblended_cost) as COST 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_line_item_type = 'Usage' 
 AND line_item_usage_type LIKE '%DataTransfer-Regional-Bytes' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY 1,2,3  -- Group by account, resource, and usage type (using column positions for brevity and potential performance benefits)
+{group_by_fields} 
 ORDER BY SUM(line_item_unblended_cost) DESC"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records

@@ -191,24 +191,47 @@ class CurRdsoldinstancessavings(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for RDS old instances upgrade savings
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            resource_select = "SPLIT_PART(line_item_resource_id,':',7) AS split_line_item_resource_id,"
+            resource_group = "SPLIT_PART(line_item_resource_id,':',7),"
+        else:
+            resource_select = "'Unknown Resource' AS split_line_item_resource_id,"
+            resource_group = ""
 
+        if (current_cur_version == 'v2.0'):
+            product_database_engine_condition = "product['database_engine']"
+            product_region_condition = "product['region']"
+            product_deployment_option_condition = "product['deployment_option']"
+            product_instance_type_condition = "product['instance_type']"
+            product_instance_type_family_condition = "product['instance_type_family']"
+            product_product_name_condition = "product['product_name'] = 'Amazon Relational Database Service'"
+        else:
+            product_database_engine_condition = "product_database_engine"
+            product_region_condition = "product_region"
+            product_deployment_option_condition = "product_deployment_option"
+            product_instance_type_condition = "product_instance_type"
+            product_instance_type_family_condition = "product_instance_type_family"
+            product_product_name_condition = "product_product_name = 'Amazon Relational Database Service'"
+        
         l_SQL= f"""SELECT 
 line_item_usage_account_id, 
-SPLIT_PART(line_item_resource_id,':',7) AS split_line_item_resource_id, 
-product_database_engine, 
-product_region, 
-product_deployment_option, 
-product_instance_type, 
-product_instance_type_family, 
+{resource_select}
+{product_database_engine_condition}, 
+{product_region_condition}, 
+{product_deployment_option_condition}, 
+{product_instance_type_condition}, 
+{product_instance_type_family_condition}, 
 line_item_unblended_rate, 
 SUM(line_item_unblended_cost) AS cost 
- FROM 
- {fqdb_name} 
+ FROM {self.cur_db}.{self.cur_table} 
  WHERE 
 {account_id} 
- product_product_name = 'Amazon Relational Database Service' 
+ {product_product_name_condition} 
  AND line_item_usage_type like '%InstanceUsage%' 
  AND ( 
 		(line_item_usage_type not like '%t4g%') and 
@@ -226,19 +249,15 @@ SUM(line_item_unblended_cost) AS cost
  AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
  GROUP BY 
   line_item_usage_account_id, 
-  SPLIT_PART(line_item_resource_id,':',7), 
+  {resource_group}
   line_item_unblended_rate, 
-  product_database_engine, 
-  product_region, 
-  product_deployment_option, 
-  product_instance_type, 
-  product_instance_type_family 
+  {product_database_engine_condition}, 
+  {product_region_condition}, 
+  {product_deployment_option_condition}, 
+  {product_instance_type_condition}, 
+  {product_instance_type_family_condition} 
  ORDER BY 
  cost DESC"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

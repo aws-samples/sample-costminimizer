@@ -3,6 +3,7 @@
 
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
+
 from ....constants import __tooling_name__
 
 from ..co_base import CoBase
@@ -152,7 +153,7 @@ class CoInstancesreport(CoBase):
         
         # Create EC2 client to get instance details
         # Create boto3 EC2 client 
-        ec2_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('ec2', region_name=region)
+        ec2_client = self.appConfig.get_client('ec2', region_name=region[0])
 
         if display:
             display_msg = f'[green]Running Compute Optimizer Report: {report_name} / {region}[/green]'

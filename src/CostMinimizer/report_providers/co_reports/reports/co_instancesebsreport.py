@@ -3,6 +3,7 @@
 
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
+
 from ....constants import __tooling_name__
 
 from ....report_providers.co_reports.co_base import CoBase
@@ -41,7 +42,7 @@ class CoInstancesebsreport(CoBase):
         return 'Compute Optimizer'
     
     def domain_name(self):
-        return 'COMPUTE'
+        return 'STORAGE'
 
     def description(self): #required - see abstract class
         return '''EC2 EBS Costs recommendations.'''
@@ -75,11 +76,10 @@ class CoInstancesebsreport(CoBase):
         return False
     
     def get_required_columns(self) -> list:
-        return ['accountId', 'region', 'instanceName', 'finding', 'recommendation', self.ESTIMATED_SAVINGS_CAPTION]
-
+        return ['account_id', 'volume_arn', 'current_volume_type', 'current_volume_size', 'root_volume', 'finding', 'number_of_recommendations', self.ESTIMATED_SAVINGS_CAPTION]
 
     def get_expected_column_headers(self) -> list:
-        return ['accountId', 'region', 'instanceName', 'finding', 'recommendation', self.ESTIMATED_SAVINGS_CAPTION]
+        return self.get_required_columns()
 
     def disable_report(self) -> bool:
         return False
@@ -94,7 +94,7 @@ class CoInstancesebsreport(CoBase):
     def get_estimated_savings(self, sum=False) -> float:
         self._set_recommendation()
 
-        return self.set_estimate_savings()
+        return self.set_estimate_savings(sum)
 
     def set_estimate_savings(self, sum=False) -> float:
 
@@ -114,7 +114,7 @@ class CoInstancesebsreport(CoBase):
             return 0
 
     def calculate_savings(self):
-        return 0.0
+        return self.get_estimated_savings()
 
     def enable_comparison(self) -> bool:
         return False
@@ -132,21 +132,67 @@ class CoInstancesebsreport(CoBase):
         }
 
     def sql(self, client, region, account, display = False, report_name = ''): #required - see abstract class
-        type = 'chart' #other option table
+        '''
+        This function is called by the report engine to get the data for the report.
 
-        # implement object of InstanceReport class
-        from ..co_base import InstanceReport
+        This function returns data from the Compute Optimizer get_ebs_volume_recommendations method. 
+        https://tinyurl.com/2n3mr9ju
 
-        IR = InstanceReport(self.appConfig)
+        The estimated savings returned are the savings that are ranked #1.  
+        '''
 
-        # call do_work function of IR object
-        # results is a list of dictionaries
-        # each dictionary contains information about an instance
-        # such as instance ID, instance type, storage size, storage cost, and monthly cost
+        ttype = 'chart' #other option table
 
-        results = IR.list_ebs_instances_prices( region=region, account=account, display=display, report_name=report_name)
-        df = pd.DataFrame( results)
-        self.report_result.append({'Name':self.name(),'Data':df, 'Type':type, 'DisplayPotentialSavings':False})
+        try:
+            response = client.get_ebs_volume_recommendations()
+        except:
+            raise
+        
+        results_list = []
+        if response and 'volumeRecommendations' in response:
+            for recommendation in response['volumeRecommendations']:
+                account = recommendation['accountId']
+                volume_arn = recommendation['volumeArn']
+                current_volume_type = recommendation['currentConfiguration']['volumeType']
+                current_volume_size = recommendation['currentConfiguration']['volumeSize']
+                root_volume = recommendation['currentConfiguration']['rootVolume']
+                finding = recommendation['finding']
+
+                number_of_recommendations = len(recommendation['volumeRecommendationOptions'])
+                
+                if number_of_recommendations == 0:
+                    estimated_savings = 0.0
+                elif number_of_recommendations == 1:
+                    estimated_savings = recommendation['volumeRecommendationOptions'][0]['savingsOpportunity']['estimatedMonthlySavings']['value']
+                elif number_of_recommendations > 1:
+                    for option in recommendation['volumeRecommendationOptions']:
+                        if option['rank'] == 1:
+                            estimated_savings = option['savingsOpportunity']['estimatedMonthlySavings']['value']
+                
+                results_list.append({
+                    'account_id': account,
+                    'volume_arn': volume_arn,
+                    'current_volume_type': current_volume_type,
+                    'current_volume_size': current_volume_size,
+                    'root_volume': root_volume,
+                    'finding': finding,
+                    'number_of_recommendations': number_of_recommendations,
+                    self.ESTIMATED_SAVINGS_CAPTION: estimated_savings
+                })
+        else:
+            results_list.append({
+                'account_id': account,
+                'volume_arn': '',
+                'current_volume_type': '',
+                'current_volume_size': '',
+                'root_volume': '',
+                'finding': '',
+                'number_of_recommendations': 0,
+                self.ESTIMATED_SAVINGS_CAPTION: ''
+            })
+
+        df = pd.DataFrame(results_list)
+        self.report_result.append({'Name':self.name(),'Data':df, 'Type':ttype, 'DisplayPotentialSavings':False})
 
         return self.report_result
 
@@ -168,12 +214,12 @@ class CoInstancesebsreport(CoBase):
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):
         # [ColX1, ColX2,...]
-        return [16,17]
+        return [8]
 
     # return column to group by in the excel graph, which is the rank in the pandas DF [1..N]
     def get_group_by(self):
         # [ColX1, ColX2,...]
-        return [9,10]
+        return [0,1]
     
     def require_user_provided_region(self)-> bool:
         '''

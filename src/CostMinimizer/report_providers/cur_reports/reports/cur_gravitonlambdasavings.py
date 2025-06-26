@@ -270,15 +270,34 @@ class CurGravitonlambdasavings(CurBase):
                     self.ESTIMATED_SAVINGS_CAPTION
             ]
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for Lambda ARM migration savings
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if (current_cur_version == 'v2.0'):
+            product_name = "product"
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'AWS Lambda'"
+        else:
+            product_name = "product_region"
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AWSLambda'"
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id AS line_item_resource_id"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' AS line_item_resource_id"
+            resource_group = ""
 
         l_SQL = f"""WITH x86_v_arm_spend AS ( 
-SELECT line_item_resource_id AS line_item_resource_id, 
+SELECT {resource_select}, 
 bill_payer_account_id AS bill_payer_account_id, 
 line_item_usage_account_id AS line_item_usage_account_id, 
 line_item_line_item_type AS line_item_line_item_type, 
-line_item_usage_type,
+line_item_usage_type, 
 CASE 
 WHEN SUBSTR( 
 line_item_usage_type, 
@@ -287,16 +306,15 @@ line_item_usage_type,
 THEN ('ARM') 
 ELSE ('x86') 
 END AS processor, 
-product_region,
+{product_name}, 
 CASE SUBSTR( line_item_usage_type, (length(line_item_usage_type) - 2) ) 
 WHEN ('ARM') THEN 0 ELSE (line_item_unblended_cost * .2) 
 END AS savings_with_arm, 
 SUM(line_item_unblended_cost) AS line_item_unblended_cost 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-(line_item_product_code = 'AWSLambda') 
+({line_item_product_code_condition}) 
 AND (line_item_operation = 'Invoke') 
 AND ( 
 line_item_usage_type LIKE '%Request%' 
@@ -309,21 +327,17 @@ AND line_item_line_item_type IN (
 'SavingsPlanCoveredUsage' 
 ) 
 GROUP BY 1,2,3,4,5,6,7,8) 
-SELECT line_item_resource_id, 
+SELECT {resource_select}, 
 bill_payer_account_id, 
 line_item_usage_account_id, 
 line_item_line_item_type, 
 line_item_usage_type,
 processor, 
-product_region, 
+{product_region_condition}, 
 sum(line_item_unblended_cost) AS line_item_unblended_cost, 
 sum(savings_with_arm) AS potential_savings_with_arm_rough20percent 
 FROM x86_v_arm_spend 
-GROUP BY 1,2,3,4,5,6,7;"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
+GROUP BY {resource_group}2,3,4,5,6,7;"""
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

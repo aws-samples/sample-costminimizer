@@ -191,20 +191,40 @@ class CurNetworkdatatransferregional(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for regional network data transfer optimization
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id,"
+            resource_group = "line_item_resource_id"
+            resource_final_select = "line_item_resource_id"
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id,"
+            resource_group = ""
+            resource_final_select = "line_item_resource_id"
 
+        if (current_cur_version == 'v2.0'):
+            product_name = "product"
+            product_product_family_condition = "product['product_family']"
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name']"
+        else:
+            product_name = "product_product_family, product_region, line_item_product_code"
+            product_product_family_condition = "product_product_family"
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code"
+        
         l_SQL= f"""WITH dt_resources as (
 SELECT bill_payer_account_id, 
 line_item_usage_account_id, 
 DATE_FORMAT((line_item_usage_start_date),'%Y-%m') AS month_line_item_usage_start_date, 
-line_item_product_code, 
-product_product_family, 
-product_region, 
+{product_name}, 
 line_item_line_item_description, 
-line_item_resource_id, 
+{resource_select} 
 sum(line_item_unblended_cost) AS sum_line_item_unblended_cost 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_line_item_description LIKE '%regional data transfer%' 
@@ -212,21 +232,19 @@ AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}'))
 GROUP BY bill_payer_account_id, 
 line_item_usage_account_id, 
 DATE_FORMAT((line_item_usage_start_date),'%Y-%m'), 
-line_item_product_code, 
-product_product_family, 
-product_region, 
+{product_name}, 
 line_item_line_item_description, 
-line_item_resource_id 
+{resource_group} 
 ORDER BY sum_line_item_unblended_cost DESC) 
 SELECT 
 bill_payer_account_id, 
 line_item_usage_account_id, 
 month_line_item_usage_start_date, 
-line_item_product_code, 
-product_product_family, 
-product_region, 
+{line_item_product_code_condition}, 
+{product_product_family_condition}, 
+{product_region_condition}, 
 line_item_line_item_description, 
-line_item_resource_id, 
+{resource_final_select},
 sum_line_item_unblended_cost 
 FROM 
 dt_resources 

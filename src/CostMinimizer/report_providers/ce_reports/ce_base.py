@@ -53,7 +53,7 @@ class CeBase(ReportBase, ABC):
         self.ristart = (datetime.date.today() - relativedelta(months=+11)).replace(day=1) #1st day of month 11 months ago
         self.sixmonth = (datetime.date.today() - relativedelta(months=+6)).replace(day=1) #1st day of month 6 months ago, so RI util has savings values
         try:
-            self.accounts = self.getAccounts()
+            self.accounts = self.appConfig.accounts_metadata
         except:
             logging.exception("Getting Account names failed")
             self.accounts = {}
@@ -120,7 +120,7 @@ class CeBase(ReportBase, ABC):
 
         self.expiration_days = self.set_expiration_days(expiration_days) #set expiration days
 
-        self.accounts, self.regions, self.customer = self.set_report_request_for_run()
+        #self.accounts, self.regions, self.customer = self.set_report_request_for_run()
 
         self.provider_run(additional_input_data, display)
 
@@ -133,22 +133,7 @@ class CeBase(ReportBase, ABC):
         '''set the report object for run'''
         
         return report(self.query_paramaters, self.appConfig.auth_manager.aws_cow_account_boto_session)
-
-    def getAccounts(self):
-        accounts = {}
-        try:
-            client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
-        except Exception as e:
-            self.appConfig.console.print(f'\n[red]ERROR: Unable to establish boto session for Organizations. \n{e}[/red]')
-            sys.exit()
-
-        paginator = client.get_paginator('list_accounts')
-        response_iterator = paginator.paginate()
-        for response in response_iterator:
-            for acc in response['Accounts']:
-                accounts[acc['Id']] = acc
-        return accounts
-    
+   
     def addRiReport(self, Name='RICoverage', Savings=False, PaymentOption='PARTIAL_UPFRONT', Service='Amazon Elastic Compute Cloud - Compute'): #Call with Savings True to get Utilization report in dollar savings
         self.chart_type_of_excel = 'chart' #other options (table, pivot, chart)
         if Name == "RICoverage":

@@ -3,6 +3,7 @@
 
 __author__ = "Samuel Lepetre"
 __license__ = "Apache-2.0"
+
 from ..constants import __tooling_name__
 
 class Error(Exception):

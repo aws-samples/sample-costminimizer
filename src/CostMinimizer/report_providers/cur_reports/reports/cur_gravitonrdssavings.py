@@ -292,17 +292,32 @@ class CurGravitonrdssavings(CurBase):
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
         """Generate SQL query for RDS Graviton migration analysis."""
+        if (current_cur_version == 'v2.0'):
+            product_instance_type_condition = "product['instance_type']"
+            product_database_engine_condition = "product['database_engine']"
+            product_deployment_option_condition = "product['deployment_option']"
+            product_tenancy_condition = "product['tenancy']"
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Relational Database Service'"
+        else:
+            product_instance_type_condition = "product_instance_type"
+            product_database_engine_condition = "product_database_engine"
+            product_deployment_option_condition = "product_deployment_option"
+            product_tenancy_condition = "product_tenancy"
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonRDS'"
+        
         l_SQL = f"""WITH rds_usage AS (
 SELECT 
 line_item_usage_account_id as account_id, 
-product_instance_type as instance_type, 
-product_database_engine as db_engine, 
-product_deployment_option AS deployment_option, 
+{product_instance_type_condition} as instance_type, 
+{product_database_engine_condition} as db_engine, 
+{product_deployment_option_condition} AS deployment_option, 
 line_item_availability_zone AS az, 
-product_tenancy as tenancy, 
-product_region as region, 
+{product_tenancy_condition} as tenancy, 
+{product_region_condition} as region, 
 SUM(line_item_unblended_cost) as current_cost, 
 SUM(CASE 
 WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_savings_plan_effective_cost 
@@ -310,24 +325,23 @@ WHEN line_item_line_item_type = 'DiscountedUsage' THEN reservation_effective_cos
 ELSE line_item_unblended_cost 
 END) AS AmortizedCost, 
 SUM(line_item_usage_amount) as usage_amount 
-FROM  
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_product_code = 'AmazonRDS' 
+{line_item_product_code_condition} 
 AND line_item_usage_type LIKE '%Instance%Usage%' 
 AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage') 
-AND product_instance_type NOT LIKE '%.metal' 
-AND product_instance_type NOT LIKE 'db.%g.%' 
+AND {product_instance_type_condition} NOT LIKE '%.metal' 
+AND {product_instance_type_condition} NOT LIKE 'db.%g.%' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
-product_instance_type, 
-product_database_engine, 
-product_deployment_option, 
+{product_instance_type_condition}, 
+{product_database_engine_condition}, 
+{product_deployment_option_condition}, 
 line_item_availability_zone, 
-product_tenancy, 
-product_region 
+{product_tenancy_condition}, 
+{product_region_condition} 
 ) 
 SELECT 
 account_id as Account_ID_, 

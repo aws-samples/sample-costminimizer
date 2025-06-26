@@ -178,18 +178,27 @@ class CurSagemakeridleendpointscost(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for SageMaker idle endpoints cost
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            select_fields = "line_item_resource_id as endpoint_arn,"
+            group_by_fields = "GROUP BY line_item_resource_id"
+        else:
+            select_fields = "'Unknown Endpoint' as endpoint_arn,"
+            group_by_fields = "GROUP BY 1"
 
         l_SQL = f"""SELECT 
-line_item_resource_id as endpoint_arn, 
+{select_fields}
 sum(line_item_unblended_cost) as estimated_savings 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_product_code = 'AmazonSageMaker' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY line_item_resource_id;"""
+{group_by_fields};"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
         # for each unique combination of account, resource, and usage type. This gives us the

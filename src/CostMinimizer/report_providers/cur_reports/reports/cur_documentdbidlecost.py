@@ -40,6 +40,10 @@ class Cloudwatch:
             self.logger.info(f"Error getting metric data: {e}")
             return {"metricDataResults": []}
 
+
+####### TURNING THIS CHECK OFF - IT NEEDS TO BE REWRITTEN.  CLOUDWATCH CLASS SHOULD BE CENTRALIZED
+####### ERRORS WITH THIS CHECK ON line 206 and link 330
+
 class CurDocumentdbidlecost(CurBase):
     """
     A class for identifying and reporting on idle DocumentDB instances in AWS environments.
@@ -83,7 +87,7 @@ class CurDocumentdbidlecost(CurBase):
         return "processed"
 
     def disable_report(self):
-        return False
+        return True
 
     def get_estimated_savings(self, sum=True) -> float:
         self._set_recommendation()
@@ -367,24 +371,41 @@ class CurDocumentdbidlecost(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for idle DocumentDB instances cost
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "SPLIT_PART(line_item_resource_id,':',7) AS line_item_resource_id"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id"
+            resource_group = ""
+
+        if (current_cur_version == 'v2.0'):
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'AmazonDocDB'"
+        else:
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonDocDB'"
 
         l_SQL = f"""SELECT 
 line_item_usage_account_id, 
-SPLIT_PART(line_item_resource_id,':',7) AS line_item_resource_id,
-product_region,
+{resource_select}, 
+{product_region_condition}, 
 sum(CAST(line_item_unblended_cost AS decimal(16,8))) AS estimated_savings 
-FROM {fqdb_name}  
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-AND line_item_product_code = 'AmazonDocDB' 
+AND {line_item_product_code_condition} 
 AND line_item_line_item_type NOT IN ('Tax','Credit','Refund','Fee','RIFee') 
 GROUP BY 
-line_item_resource_id,
+{resource_group}
 line_item_usage_account_id,
-product_region"""
+{product_region_condition}"""
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
@@ -413,7 +434,6 @@ product_region"""
     def get_range_values(self):
         # Col1, Lig1 to Col2, Lig2
         return 3, 1, 3, -1
-
 
     # return list of columns values in the excel graph so that format is $, which is the Column # in excel sheet from [0..N]
     def get_list_cols_currency(self):

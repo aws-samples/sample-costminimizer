@@ -210,9 +210,27 @@ class CurEbsgptwotogpthree(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for EBS gp2 to gp3 migration savings
-        # AND (CAST("concat"("year", '-', "month", '-01') AS date) = ("date_trunc"('month', current_date) - INTERVAL  '1' MONTH)) 
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        if (current_cur_version == 'v2.0'):
+            product_name = "product"
+            product_volume_api_name_condition = "product['storage_class']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Elastic Compute Cloud'"
+        else:
+            product_name = "product_volume_api_name"
+            product_volume_api_name_condition = "product_volume_api_name"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonEC2'"
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id"
+            resource_group = ""
 
         l_SQL = f"""WITH ebs_all AS ( 
 SELECT 
@@ -220,22 +238,21 @@ bill_billing_period_start_date,
 line_item_usage_start_date, 
 bill_payer_account_id, 
 line_item_usage_account_id, 
-line_item_resource_id, 
-product_volume_api_name, 
+{resource_select}, 
+{product_name}, 
 line_item_usage_type, 
 pricing_unit, 
 line_item_unblended_cost, 
 line_item_usage_amount 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-(line_item_product_code = 'AmazonEC2') 
+({line_item_product_code_condition}) 
 AND (line_item_line_item_type = 'Usage') 
 AND bill_payer_account_id <> '' 
 AND line_item_usage_account_id <> '' 
 AND line_item_usage_type LIKE '%gp%' 
-AND product_volume_api_name <> '' 
+AND {product_volume_api_name_condition} <> '' 
 AND line_item_usage_type NOT LIKE '%Snap%' 
 AND line_item_usage_type LIKE '%EBS%' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -246,8 +263,8 @@ bill_billing_period_start_date AS billing_period,
 date_trunc('month',line_item_usage_start_date) AS usage_date, 
 bill_payer_account_id AS payer_account_id, 
 line_item_usage_account_id AS linked_account_id, 
-line_item_resource_id AS resource_id, 
-product_volume_api_name AS volume_api_name, 
+{resource_select}, 
+{product_volume_api_name_condition} AS volume_api_name, 
 SUM(CASE 
 WHEN (((pricing_unit = 'GB-Mo' or pricing_unit = 'GB-month') or pricing_unit = 'GB-month') AND  line_item_usage_type LIKE '%EBS:VolumeUsage%') THEN line_item_usage_amount ELSE 0 
 END) AS usage_storage_gb_mo, 
@@ -337,7 +354,7 @@ SELECT DISTINCT
 billing_period, 
 payer_account_id, 
 linked_account_id, 
-resource_id, 
+line_item_resource_id, 
 volume_api_name, 
 storage_summary, 
 SUM(usage_storage_gb_mo) AS usage_storage_gb_mo, 
@@ -372,10 +389,6 @@ SELECT DISTINCT
 * 
 FROM 
 ebs_before_map;"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

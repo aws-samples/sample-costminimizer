@@ -236,33 +236,41 @@ class CurGravitoneccsavingsrough(CurBase):
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
-    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
+    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
         """Generate SQL query for Graviton migration analysis.
         Add this WHERE condition to exclude Windows OS:   AND product_operating_system NOT LIKE '%Windows%'
         """
 
+        if (current_cur_version == 'v2.0'):
+            product_instance_type_condition = "product['instance_type']"
+            product_operating_system_condition = "product['operating_system']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Elastic Compute Cloud'"
+        else:
+            product_instance_type_condition = "product_instance_type"
+            product_operating_system_condition = "product_operating_system"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonEC2'"
+        
         # This method needs to be implemented with the specific SQL query for aged EBS snapshots cost
         l_SQL = f"""WITH ec2_usage AS ( 
 SELECT 
 line_item_usage_account_id as account_id, 
-product_instance_type as instance_type, 
-product_operating_system AS os, 
+{product_instance_type_condition} as instance_type, 
+{product_operating_system_condition} AS os, 
 SUM(line_item_unblended_cost) as current_cost, 
 SUM(line_item_usage_amount) as usage_amount 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_product_code = 'AmazonEC2' 
+{line_item_product_code_condition} 
 AND line_item_usage_type LIKE '%BoxUsage%' 
-AND product_instance_type NOT LIKE '%.metal' 
-AND product_instance_type NOT LIKE 'a1.%' 
-AND product_instance_type NOT LIKE '%g.%' 
+AND {product_instance_type_condition} NOT LIKE '%.metal' 
+AND {product_instance_type_condition} NOT LIKE 'a1.%' 
+AND {product_instance_type_condition} NOT LIKE '%g.%' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
-product_instance_type, 
-product_operating_system 
+{product_instance_type_condition}, 
+{product_operating_system_condition} 
 ) 
 SELECT 
 account_id as "Account ID", 

@@ -570,6 +570,11 @@ troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-cos
                     if report.service_name() in ['Cost Explorer']:
                         report.generateExcel(writer_summary)
                     else:
+                        # if forced disabled
+                        if report.disable_report():
+                            self.logger.info(f'{self.name()} removing disabled report: {report.name()}')
+                            continue
+
                         index_row.append(report.name())
                         l_savings = report.calculate_savings()
                         row = [
@@ -591,7 +596,8 @@ troubleshooting please see our FAQ at: https://github.com/aws-samples/sample-cos
                         report.generateExcel(writer)
                         writer.close()
                     except Exception as exc:
-                        raise ExceptionCreatingXLSFile(f'Unable to create XLS report tab in Excel file: {exc}') from exc
+                        self.appConfig.console.print(f'\n[red]ERROR: Unable to create XLS report tab in Excel file for {common_name}: {exc}[/red]')
+                        #raise ExceptionCreatingXLSFile(f'Unable to create XLS report tab in Excel file: {exc}') from exc
 
             df = pd.DataFrame(summary_rows,
                 index=index_row,

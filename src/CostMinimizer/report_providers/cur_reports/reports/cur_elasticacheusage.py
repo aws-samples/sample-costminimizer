@@ -191,44 +191,60 @@ class CurElasticacheusage(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method implements the specific SQL query for ElastiCache usage optimization
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if (current_cur_version == 'v2.0'):
+            product_cache_engine_condition = "product['cache_engine']"
+            product_region_code_condition = "product['region_code']"
+            product_product_name_condition = "product['product_name'] = 'Amazon ElastiCache'"
+            product_product_family_condition = "product['product_family'] = 'Cache Instance'"
+        else:
+            product_cache_engine_condition = "product_cache_engine"
+            product_region_code_condition = "product_region_code"
+            product_product_name_condition = "product_product_name = 'Amazon ElastiCache'"
+            product_product_family_condition = "product_product_family = 'Cache Instance'"
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "SPLIT_PART(line_item_resource_id, ':', 7)"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource'"
+            resource_group = ""
 
         l_SQL= f"""SELECT 
-SPLIT_PART(line_item_resource_id, ':', 7) AS split_line_item_resource_id, 
+{resource_select} AS split_line_item_resource_id, 
 SPLIT_PART(line_item_usage_type, ':', 2) AS split_line_item_usage_type, 
 line_item_line_item_type, 
 line_item_usage_account_id, 
 SUM(line_item_usage_amount) AS sum_line_item_usage_amount, 
 SUM(line_item_unblended_cost) AS sum_line_item_unblended_cost, 
 AVG(CAST(line_item_usage_amount AS DOUBLE)) AS avg_cpu_utilization, 
-product_cache_engine, 
-product_region_code 
-FROM 
-{fqdb_name} 
+{product_cache_engine_condition}, 
+{product_region_code_condition} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-product_product_name = 'Amazon ElastiCache' 
-AND product_product_family = 'Cache Instance' 
+{product_product_name_condition} 
+AND {product_product_family_condition} 
 AND line_item_line_item_type = 'Usage' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
 DATE_FORMAT(line_item_usage_start_date, '%Y-%m'), 
-line_item_resource_id, 
+{resource_group}
 line_item_line_item_type, 
 line_item_usage_type, 
-product_cache_engine, 
-product_region_code 
+{product_cache_engine_condition}, 
+{product_region_code_condition} 
 HAVING 
 avg_cpu_utilization < 0.3  -- Identify instances with less than 30% average CPU utilization 
 ORDER BY 
 sum_line_item_unblended_cost DESC 
 LIMIT 10  -- Focus on top 10 most expensive underutilized instances"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

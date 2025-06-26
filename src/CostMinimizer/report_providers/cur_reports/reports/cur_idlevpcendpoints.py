@@ -190,36 +190,43 @@ class CurIdlevpcendpoints(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method implements the specific SQL query for idle VPC endpoints
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if (current_cur_version == 'v2.0'):
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Virtual Private Cloud'"
+        else:
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonVPC'"
+        
+        if resource_id_column_exists:
+            select_fields = "line_item_usage_account_id AS account_id,\n                line_item_resource_id,"
+            endpoint_id_field = "SUBSTRING(line_item_resource_id, POSITION('/' IN line_item_resource_id)+1) AS endpoint_id,"
+            group_by_fields = "GROUP BY \n                line_item_usage_type, \n                line_item_line_item_type, \n                line_item_usage_account_id, \n                line_item_resource_id, \n                line_item_product_code, \n                product_region, \n                line_item_line_item_type, \n                line_item_operation \n                order by endpoint_id,line_item_usage_type"
+        else:
+            select_fields = "line_item_usage_account_id AS account_id,\n                'Unknown Resource' as line_item_resource_id,"
+            endpoint_id_field = "'Unknown Endpoint' AS endpoint_id,"
+            group_by_fields = "GROUP BY \n                line_item_usage_type, \n                line_item_line_item_type, \n                line_item_usage_account_id, \n                line_item_product_code, \n                product_region, \n                line_item_line_item_type, \n                line_item_operation \n                order by line_item_usage_type"
 
-        l_SQL = f"""SELECT line_item_usage_account_id AS account_id, 
-                line_item_resource_id, 
-                line_item_usage_type, 
-                product_region, 
-                SUBSTRING(line_item_resource_id, POSITION('/' IN line_item_resource_id)+1) AS endpoint_id, 
-                line_item_product_code AS endpoint_product_code, 
-                line_item_operation AS endpoint_operation, 
-                ROUND(SUM(line_item_unblended_cost),2) AS cost 
-                FROM 
-                {fqdb_name} 
-                WHERE 
-                {account_id} 
-                line_item_line_item_type LIKE 'Usage' 
-                AND (line_item_usage_type like '%VpcEndpoint-Bytes%' or line_item_usage_type like '%VpcEndpoint-Hours%') 
-                AND line_item_product_code = 'AmazonVPC' 
-                AND line_item_operation LIKE 'VpcEndpoint' 
-                AND line_item_usage_start_date >= now() - INTERVAL '1' month 
-                GROUP BY 
-                line_item_usage_type, 
-                line_item_line_item_type, 
-                line_item_usage_account_id, 
-                line_item_resource_id, 
-                line_item_product_code, 
-                product_region, 
-                line_item_line_item_type, 
-                line_item_operation 
-                order by endpoint_id,line_item_usage_type"""
+        l_SQL = f"""SELECT {select_fields}
+line_item_usage_type, 
+{product_region_condition}, 
+{endpoint_id_field} 
+line_item_product_code AS endpoint_product_code, 
+line_item_operation AS endpoint_operation, 
+ROUND(SUM(line_item_unblended_cost),2) AS cost 
+FROM {self.cur_db}.{self.cur_table} 
+WHERE 
+{account_id} 
+line_item_line_item_type LIKE 'Usage' 
+AND (line_item_usage_type like '%VpcEndpoint-Bytes%' or line_item_usage_type like '%VpcEndpoint-Hours%') 
+AND {line_item_product_code_condition} 
+AND line_item_operation LIKE 'VpcEndpoint' 
+AND line_item_usage_start_date >= now() - INTERVAL '1' month 
+{group_by_fields}"""
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

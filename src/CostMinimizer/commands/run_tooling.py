@@ -22,6 +22,8 @@ from ..utils.term_menu import clear_cli_terminal
 from ..report_request_parser.report_request_parser import ToolingReportRequest
 from ..report_controller.report_controller import CowReportController
 from ..report_output_handler.report_output_pptx import ReportOutputPptxHandler
+from ..report_controller.region_discovery_controller import RegionDiscoveryController
+from ..report_controller.resource_discovery_controller import ResourceDiscoveryController
 from ..report_output_handler.report_output_handler import ReportOutputExcel, ReportOutputMetaData, ReportOutputHandlerBase, ReportOutputDisplayAlerts
 
 class ErrorInReportDiscovery(Exception):
@@ -164,34 +166,6 @@ class RunToolingRun:
     def set_user_tags_map(self) -> None:
         
         self.appConfig.user_tag_list = CowReportController(self.appConfig, self.writer)._get_user_tags()
-      
-    def set_account_map(self) -> pd.DataFrame:
-        #discover customer accounts and map into a df
-        setupData = CowReportController(self.appConfig, self.writer)._controller_setup()
-        
-        self.appConfig.customers.account_map = setupData[0]
-
-        self.appConfig.regions = []
-
-        sortedData = setupData[1].sort_values(by='TotalSpend', ascending=False).to_dict()
-
-        regions = list(sortedData['region'].values())
-        accounts = list(sortedData['account'].values())
-        spend = list(sortedData['TotalSpend'].values())
-
-        maxRegionLength = 0
-
-        for r in regions:
-            maxRegionLength = max(maxRegionLength, len(r))
-
-        for i in range(0, len(regions)):
-            self.appConfig.regions.append(dict(region=str(regions[i]), account=str(accounts[i]), spend=spend[i]))
-
-        #insert a 'SELECT_ALL' into menu
-        new_row = pd.DataFrame({'account_id': 'SELECT_ALL', 'account_name': 'SELECT_ALL', 'TotalSpend': 0}, index=[0])
-        self.appConfig.customers.account_map = self.insert_at_top_of_dataframe(new_row, self.appConfig.customers.account_map)
-
-        return self.appConfig.customers.account_map
 
     def report_controller_build(self, writer) -> CowReportController:
         return CowReportController(self.appConfig, writer)
@@ -505,6 +479,12 @@ class RunToolingRun:
             self.logger.info(f'Running in {self.mode} mode: Report data source from {datasource} : {datasource_file}')
             return report_request.get_all_reports()
     
+    def set_using_tags_from_arguments(self):
+        '''set if tags have been enabled on cli'''
+        self.appConfig.using_tags = False
+        if hasattr(self.appConfig.arguments_parsed, 'usertags') and (self.appConfig.arguments_parsed.usertags is True):
+            self.appConfig.using_tags = True
+
     def run(self):
 
         '''
@@ -514,15 +494,29 @@ class RunToolingRun:
         '''
         try:
             c = self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts')
-            result = c.get_caller_identity()
+            c.get_caller_identity()
         except Exception as e:
             raise
+
+        self.set_using_tags_from_arguments()
+
+        self.report_controller = self.report_controller_build(self.writer)
+        self.report_controller._controller_setup()
+
+        # Get a list of available regions from the account
+        # display message for the user to wait that getting list of regions is ongoing
+        self.logger.info(f"Getting list of available regions for the admin account. Please wait...")
+        self.appConfig.account_region_discovery = RegionDiscoveryController()
+        self.appConfig.account_region_discovery.set_discovered_regions()
+
+        # run preconditioned reports
+        # display message for the user to wait that getting list of preconditionned reports is ongoing
+        self.logger.info(f"Getting list of preconditionned reports for the admin account. Please wait...")
+        self.appConfig.precondition_reports = ResourceDiscoveryController()
+        self.appConfig.customers, self.appConfig.reports = self.report_request_parse(self.appConfig.precondition_reports.precondition_reports)
+        self.appConfig.precondition_reports.run(self.report_controller)
         
         if self.appConfig.mode == 'cli':
-
-            self.appConfig.using_tags = False
-            if hasattr(self.appConfig.arguments_parsed, 'usertags') and (self.appConfig.arguments_parsed.usertags is True):
-                self.appConfig.using_tags = True
 
             # define self.appConfig.reports list
             self.check_report_request_mode()
@@ -563,9 +557,6 @@ class RunToolingRun:
                 
             self.appConfig.selected_regions = self.display_regions_menu(selected_accounts, requires_region_selection)
             self.appConfig.selected_region = self.appConfig.selected_regions
-
-            #build report contoller
-            self.report_controller = self.report_controller_build(self.writer)
 
             #run report controller run method
             self.report_controller.run()

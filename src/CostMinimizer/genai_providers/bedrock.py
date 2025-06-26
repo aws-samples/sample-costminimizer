@@ -1,19 +1,22 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+__author__ = "Samuel Lepetre"
+__license__ = "Apache-2.0"
+
+from ..constants import __tooling_name__
+
 import json
-import boto3
 import sys
-import io
 import re
 import ast
 import backoff
-import pandas as pd
-import logging
 
 from typing import List, Dict, Any, Optional
 from botocore.config import Config as BConfig
 from abc import abstractmethod
 
 from ..constants import __tooling_name__
-from ..config.config import Config
 from .genai_provider_client_base import ProviderBase
 
 def backoff_handler(details):

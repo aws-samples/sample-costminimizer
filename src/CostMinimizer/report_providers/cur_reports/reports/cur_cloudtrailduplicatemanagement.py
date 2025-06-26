@@ -197,35 +197,47 @@ class CurCloudtrailduplicatemanagement(CurBase):
             self.logger.error(f"Error retrieving CloudTrail names: {str(e)}")
             return ["Unknown"]
     
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for CloudTrail duplicate management events
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR   
+        if (current_cur_version == 'v2.0'):
+            product_column_str_condition = "product['product_name'] = 'AWS CloudTrail'"
+            product_region_code_condition = "product['region'] as product_region_code"
+        else:
+            product_column_str_condition = "product_product_name = 'AWS CloudTrail'"
+            product_region_code_condition = "product_region_code"
+
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            select_fields = f"line_item_usage_account_id, {product_region_code_condition}, line_item_resource_id,"
+            group_by_fields = "GROUP BY 1, 2, 3 "
+            trail_name_field = "COALESCE(t.line_item_resource_id, 'Unknown Trail') as trail_name"
+        else:
+            select_fields = f"line_item_usage_account_id, {product_region_code_condition},"
+            group_by_fields = "GROUP BY 1, 2"
+            trail_name_field = "'Unknown Trail' as trail_name"
 
         l_SQL= f"""WITH trail_data AS (
   SELECT 
-    line_item_usage_account_id, 
-    product_region_code,
-    line_item_resource_id,
+    {select_fields} 
     sum(line_item_unblended_cost) as cost 
-  FROM {fqdb_name} 
+  FROM {self.cur_db}.{self.cur_table}  
   WHERE 
     {account_id} 
     line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-    AND product_product_name = 'AWS CloudTrail' 
+    AND {product_column_str_condition} 
     AND line_item_usage_type like '%PaidEventsRecorded%' 
-  GROUP BY 1, 2, 3
+  {group_by_fields}
 ) 
 SELECT 
   t.line_item_usage_account_id, 
   t.product_region_code, 
-  COALESCE(t.line_item_resource_id, 'Unknown Trail') as trail_name, 
+  {trail_name_field}, 
   t.cost 
 FROM trail_data t 
 ORDER BY t.line_item_usage_account_id, t.product_region_code, t.cost DESC;"""
-
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

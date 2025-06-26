@@ -35,7 +35,7 @@ class TaBase(ReportBase, ABC):
             sys.exit()
 
         try:
-            self.accounts = self.getAccounts()
+            self.accounts = self.appConfig.accounts_metadata
         except:
             logging.exception("Getting Account names failed")
             self.accounts = {}
@@ -116,22 +116,7 @@ class TaBase(ReportBase, ABC):
         '''set the report object for run'''
         
         return report(self.query_paramaters, self.appConfig.auth_manager.aws_cow_account_boto_session)
-
-    def getAccounts(self):
-        accounts = {}
-        try:
-            client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
-        except Exception as e:
-            self.appConfig.console.print(f'\n[red]Unable to establish boto session for Organizations. \n{e}[/red]')
-            sys.exit()
-
-        paginator = client.get_paginator('list_accounts')
-        response_iterator = paginator.paginate()
-        for response in response_iterator:
-            for acc in response['Accounts']:
-                accounts[acc['Id']] = acc
-        return accounts
-    
+   
     def get_query_result(self) -> AthenaPandasResultSet:
         '''return pandas object from pyathena async query'''
         

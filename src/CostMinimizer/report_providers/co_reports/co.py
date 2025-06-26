@@ -70,17 +70,39 @@ class CoReports(ReportProviderBase):
         return 'Compute Optimizer'
 
     def auth(self):
-        '''set authentication, we use the AWS profile to authenticate into the AWS account which holds the CUR/Athena integration'''
-        self.profile_name = 'detault'
-        self.logger.info(f'Setting {self.name()} report authentication profile to: {self.profile_name}')
+        pass
     
+    def determine_co_enrollment_status(self) -> bool:
+        try:
+            response = self.client.get_enrollment_status()
+            if response['status'] == 'Active':
+                return True
+        except Exception as e:
+            self.appConfig.console.print(f'\n[red]Unable to determine Compute Optimizer enrollment status. \n{e}[/red]')
+            self.logger.error('Unable to determine Compute Optimizer enrollment status.')
+            sys.exit()
+        return False
+
+    def prerequisite(self):
+        '''run all prerequisites for co to be able to run'''
+        if self.determine_co_enrollment_status():
+            self.appConfig.console.print(f'\n[green]Compute Optimizer is enrolled.[/green]')
+            self.enrollment_status = True
+        else:
+            self.appConfig.console.print(f'\n[red]Compute Optimizer is not enrolled.[/red]')
+            self.enrollment_status = False
+
     def setup(self, run_validation=False):
         '''setup instrcutions for cur report type'''
         try:
             self.client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('compute-optimizer', region_name=self.appConfig.selected_regions)
         except Exception as e:
             self.appConfig.console.print(f'\n[red]Unable to establish boto session for Compute-Optimizer. \n{e}[/red]')
+            self.logger.error('Unable to establish boto session for Compute-Optimizer.')
             sys.exit()
+
+        '''run any prerequisite checks'''
+        self.prerequisite()
 
     def run_additional_logic_for_provider(self, report_object, additional_input_data=None) -> None:
         self.additional_input_data = additional_input_data
@@ -265,10 +287,13 @@ class CoReports(ReportProviderBase):
     def calculate_savings(self):
         '''
         for each successfully completed report that or type processed
-        run the calculate savings method to determine estimated savings
+        run the calculate savings method to set estimated savings
          '''
-        successful_calculations = []
-        return 0
+        
+        for report in self.reports_in_progress:
+            #if report.status() == 'SUCCESS':
+            report.get_estimated_savings(sum=True)
+
 
     def get_data(self):
         for query in self.succeeded_queries:

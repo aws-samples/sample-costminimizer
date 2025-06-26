@@ -75,7 +75,7 @@ class AuthenticationManager:
             return True
         except Exception as e:
             self.logger.error(f"Authentication Error: {str(e)}")
-            self.config.console.print(f'\n[red]\nAuthentication Error: {str(e)}[/red]')
+            self.config.console.print(f'\n[red]\nAuthentication Error: {str(e)} \nAWS credentials have to be defined in AWS environment variables: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN[/red]')
             return False
             
     

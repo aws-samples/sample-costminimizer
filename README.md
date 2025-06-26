@@ -262,3 +262,55 @@ IAM Roles:
   - SES email sending
   - S3 bucket access
 
+## Required IAM Permissions
+
+To run all the boto3 calls in the CostMinimizer application, you'll need the following consolidated IAM policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "support:DescribeTrustedAdvisorChecks",
+        "support:DescribeTrustedAdvisorCheckResult",
+        "ce:GetCostAndUsage",
+        "ce:GetReservationCoverage",
+        "ce:GetReservationUtilization",
+        "ce:GetReservationPurchaseRecommendation",
+        "ce:GetTags",
+        "athena:StartQueryExecution",
+        "athena:GetQueryExecution",
+        "athena:GetQueryResults",
+        "athena:ListDataCatalogs",
+        "athena:ListDatabases",
+        "athena:ListTableMetadata",
+        "athena:GetTableMetadata",
+        "sts:GetCallerIdentity",
+        "sts:GetSessionToken",
+        "bedrock:Converse",
+        "bedrock:InvokeModel"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::${your-cur-s3-bucket}",
+        "arn:aws:s3:::${your-cur-s3-bucket}/*",
+        "arn:aws:s3:::${your-athena-results-bucket}",
+        "arn:aws:s3:::${your-athena-results-bucket}/*"
+      ]
+    }
+  ]
+}
+```
+
+**Note:** Replace `${your-cur-s3-bucket}` with your actual CUR S3 bucket name and `${your-athena-results-bucket}` with your Athena query results bucket name.
+

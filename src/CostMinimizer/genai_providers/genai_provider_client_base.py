@@ -1,4 +1,10 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 
+__author__ = "Samuel Lepetre"
+__license__ = "Apache-2.0"
+
+from ..constants import __tooling_name__
 import logging
 import io
 import pandas as pd

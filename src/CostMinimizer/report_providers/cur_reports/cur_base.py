@@ -10,10 +10,10 @@ import os
 import sys
 import logging
 import pandas as pd
-import boto3
 import json
 from typing import Optional, Dict, Any
 import sqlparse
+import datetime as time
 
 # Required to load modules from vendored su6bfolder (for clean development env)
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "./vendored"))
@@ -952,6 +952,7 @@ class CurBase(ReportBase, ABC):
         self.cur_db = ''
         self.cur_table = ''
         self.cur_region = ''
+        self.cur_version = 'unknown'
 
         #Athena table name
         self.fqdb_name = ''
@@ -1093,7 +1094,7 @@ class CurBase(ReportBase, ABC):
         SELECT 
             SUM(CASE WHEN pricing_term = 'Reserved' THEN unblended_cost ELSE 0 END) as reserved_cost,
             SUM(CASE WHEN pricing_term = 'OnDemand' THEN unblended_cost ELSE 0 END) as on_demand_cost
-        FROM {self.fqdb_name}
+        FROM  {self.cur_db}.{self.cur_table} 
         WHERE year = '2023' AND month = '05'
         """
 
@@ -1220,6 +1221,20 @@ class CurBase(ReportBase, ABC):
                     chart_sheet.insert_chart('D2', chart, {'x_scale': 2, 'y_scale': 1.5})
                     return
 
+    def is_valid_date(self, date_str):
+        """Check if a string is a valid date."""
+        if not date_str:
+            return False
+        
+        try:
+            # Try to parse the string as a date
+            import datetime
+            datetime.datetime.strptime(date_str, "%Y-%m-%d")
+            return True
+        except ValueError:
+            return False
+
+
     def GetMinAndMaxDateFromCurTable(self, client, fqdb_name: str, payer_id: str = '', account_id: str = '', region: str = '', months_back: int = 0):
         # self.minDate and self.maxDate is empty string
         try:
@@ -1231,10 +1246,12 @@ class CurBase(ReportBase, ABC):
             l_SQL = f"""SELECT 
 CAST(DATE_TRUNC('month', DATE_ADD('month', -{months_back}, max(distinct(bill_billing_period_start_date)))) AS DATE), 
 CAST(DATE_ADD('month', 1, DATE_TRUNC('month', DATE_ADD('month', -{months_back}, max(distinct(bill_billing_period_start_date))))) - INTERVAL '1' DAY AS DATE) 
-FROM {fqdb_name};"""
+FROM {self.cur_db}.{self.cur_table};"""
             l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
             l_SQL3 = sqlparse.format(l_SQL2, keyword_case='upper', reindent=False, strip_comments=True)
             cur_db = self.appConfig.arguments_parsed.cur_db if (hasattr(self.appConfig.arguments_parsed, 'cur_db') and self.appConfig.arguments_parsed.cur_db is not None) else self.appConfig.config['cur_db']
+            # Strip any whitespace or newline characters from the database name
+            cur_db = cur_db.strip() if cur_db else ''
             response = self.run_athena_query(client, l_SQL3, self.appConfig.config['cur_s3_bucket'], cur_db)
             if len(response) < 2:
                 self.logger.warning(f"No resources found for athena request : {l_SQL3}.")
@@ -1242,7 +1259,13 @@ FROM {fqdb_name};"""
             else:
                 minDate = response[1]['Data'][0]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][0] else ''
                 maxDate = response[1]['Data'][1]['VarCharValue'] if 'VarCharValue' in response[1]['Data'][1] else ''
-                l_msg = f"MinDate is {minDate} and MaxDate is {maxDate} "
+
+                # Display the message in Red if minDate or maxDate are not valid dates, valid pattern is YYYY-MM-DD 
+                # check if minDate and maxDate are valid date
+                if not self.is_valid_date(minDate) or not self.is_valid_date(maxDate):
+                    l_msg = f"[red]MinDate is '{minDate}' and MaxDate is '{maxDate}' - Verify tooling CUR configuration via --configure"
+                else:
+                    l_msg = f"MinDate is '{minDate}' and MaxDate is '{maxDate}' "
                 if months_back > 0:
                     l_msg += f"(using data from {months_back} month{'s' if months_back > 1 else ''} before the latest month)"
                 self.appConfig.console.print(l_msg)

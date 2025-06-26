@@ -191,45 +191,68 @@ class CurEccdetailedmonitoring(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for EC2 detailed monitoring optimization
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if (current_cur_version == 'v2.0'):
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Elastic Compute Cloud'"
+            product_product_name_condition = "product['product_name'] = 'AmazonCloudWatch'"
+        else:
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonEC2'"
+            product_product_name_condition = "product_product_name = 'AmazonCloudWatch'"
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id"
+            resource_group = "line_item_resource_id"
+            line_item_product_code_condition = line_item_product_code_condition + " and line_item_resource_id like '%i%' "
+            resource_where = "split_part(split_part(m.line_item_resource_id,':',6),'/',2)=b.line_item_resource_id"
+            resource_split = f"""split_part(split_part(m.line_item_resource_id,':',6),'/',2) AS InstanceId, 
+split_part(m.line_item_resource_id,':',4) region, 
+m.line_item_resource_id"""
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id"
+            resource_group = "'Unknown Resource'"
+            resource_where = "1=1"  # Always true condition since we can't filter by resource
+            resource_split = f"""'Unknown Instance' as InstanceId, 
+{product_region_condition} as region, 
+'Unknown Resource' as line_item_resource_id"""
 
         l_SQL= f"""WITH base as 
-(select line_item_resource_id as resource_id 
-FROM 
-{fqdb_name} 
+(select {resource_select} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-AND line_item_product_code = 'AmazonEC2' and line_item_resource_id like '%i%' 
+AND {line_item_product_code_condition} 
 AND line_item_usage_type LIKE '%BoxUsage%' 
-group by line_item_resource_id 
+group by {resource_group} 
 having sum(line_item_usage_amount)>168 
 ORDER BY 1) 
 SELECT 
-line_item_usage_account_id , 
-split_part(split_part(line_item_resource_id,':',6),'/',2) InstanceId, 
-split_part(line_item_resource_id,':',4) region, 
-line_item_resource_id, 
-sum(line_item_usage_amount) usage_quantity, 
-sum(line_item_unblended_cost) usage_cost, 
-sum(line_item_unblended_cost)/sum(line_item_usage_amount) rate, 
-(sum(line_item_unblended_cost)/sum(line_item_usage_amount))*7 savings 
+m.line_item_usage_account_id, 
+{resource_split}, 
+sum(m.line_item_usage_amount) AS usage_quantity, 
+sum(m.line_item_unblended_cost) AS usage_cost, 
+sum(m.line_item_unblended_cost)/sum(m.line_item_usage_amount) AS rate, 
+(sum(m.line_item_unblended_cost)/sum(m.line_item_usage_amount))*7 AS savings 
 FROM 
-{fqdb_name}, base b 
+{self.cur_db}.{self.cur_table} m, base b 
 WHERE 
 {account_id} 
-split_part(split_part(line_item_resource_id,':',6),'/',2)=b.resource_id 
-AND line_item_usage_start_date BETWEEN DATE_ADD('day', -2, DATE('{max_date}')) AND DATE('{max_date}') 
-AND product_product_name = 'AmazonCloudWatch' AND line_item_usage_type LIKE '%%MetricMonitorUsage%%' AND line_item_operation='MetricStorage:AWS/EC2' 
-AND line_item_line_item_type ='Usage' 
-group by line_item_usage_account_id,line_item_resource_id, 
-split_part(split_part(line_item_resource_id,':',6),'/',2),split_part(line_item_resource_id,':',4) 
+{resource_where} 
+AND m.line_item_usage_start_date BETWEEN DATE_ADD('day', -2, DATE('{max_date}')) AND DATE('{max_date}') 
+AND {product_product_name_condition} AND m.line_item_usage_type LIKE '%%MetricMonitorUsage%%' AND m.line_item_operation='MetricStorage:AWS/EC2' 
+AND m.line_item_line_item_type ='Usage' 
+group by m.line_item_usage_account_id,
+m.{resource_group},  
+split_part(split_part(m.line_item_resource_id,':',6),'/',2),split_part(m.line_item_resource_id,':',4), 
+{product_region_condition} 
 order by 1,2"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

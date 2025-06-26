@@ -25,7 +25,7 @@ class AvailableReportsCommand:
         all_available_reports = {}
         available_reports = []
 
-        providers = CowReportController(self.appConfig, self.writer).import_reports( force_all_providers_true=True)
+        providers = CowReportController(self.appConfig, self.writer).import_reports(force_all_providers_true=True)
 
         if self.appConfig.mode == 'cli':
             self.appConfig.console.rule( f"{__tooling_name__} Tooling Available Reports", style="white on blue")

@@ -386,10 +386,26 @@ class CurGravitoneccsavings(CurBase):
             self.report_result.append({'Name': self.name(), 'Data': df, 'Type': self.chart_type_of_excel, 'DisplayPotentialSavings':True})
             self.report_definition = {'LINE_VALUE': 6, 'LINE_CATEGORY': 3}
 
-    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
+    def sql(self,fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
         """Generate SQL query for Graviton migration analysis.
         Add this WHERE condition to exclude Windows OS:   AND product_operating_system NOT LIKE '%Windows%'
         """
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        if (current_cur_version == 'v2.0'):
+            product_instance_type_condition = "product['instance_type']"
+            product_operating_system_condition = "product['operating_system']"
+            product_tenancy_condition = "product['tenancy']"
+            product_region_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon Elastic Compute Cloud'"
+        else:
+            product_instance_type_condition = "product_instance_type"
+            product_operating_system_condition = "product_operating_system"
+            product_tenancy_condition = "product_tenancy"
+            product_region_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonEC2'"
 
         if len(self.TAG_KEY) > 0:
             l_SQL_tag = f' AND {self.TAG_KEY} LIKE {self.TAG_VALUE_FILTER} '
@@ -398,18 +414,23 @@ class CurGravitoneccsavings(CurBase):
             l_SQL_tag = ''
             l_SQL_tag_groupby = ''
 
-        # This method needs to be implemented with the specific SQL query for aged EBS snapshots cost
-        # optional : line_item_resource_id as resource_id,
-        if self.including_resource_id:
-            l_SQL = f"""WITH ec2_usage AS ( 
+        # Adjust SQL based on column existence and including_resource_id flag
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id as resource_id"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' as resource_id"
+            resource_group = ""
+
+        l_SQL = f"""WITH ec2_usage AS ( 
 SELECT 
 line_item_usage_account_id as account_id, 
-line_item_resource_id as resource_id,
-product_instance_type as instance_type, 
-product_operating_system AS os, 
+{resource_select},
+{product_instance_type_condition} as instance_type, 
+{product_operating_system_condition} AS os, 
 line_item_availability_zone AS az, 
-product_tenancy as tenancy, 
-product_region as region, 
+{product_tenancy_condition} as tenancy, 
+{product_region_condition} as region, 
 SUM(line_item_unblended_cost) as current_cost, 
 SUM(CASE 
 WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_savings_plan_effective_cost 
@@ -418,25 +439,25 @@ ELSE line_item_unblended_cost
 END) AS amortized_cost, 
 SUM(line_item_usage_amount) as usage_amount 
 {l_SQL_tag_groupby} 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_product_code = 'AmazonEC2' 
+{line_item_product_code_condition} 
 AND line_item_usage_type LIKE '%BoxUsage%' 
 AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage') 
-AND product_instance_type NOT LIKE '%.metal' 
-AND product_instance_type NOT LIKE 'a1.%' 
-AND product_instance_type NOT LIKE '%g.%' 
+AND {product_instance_type_condition} NOT LIKE '%.metal' 
+AND {product_instance_type_condition} NOT LIKE 'a1.%' 
+AND {product_instance_type_condition} NOT LIKE '%g.%' 
+AND {product_instance_type_condition} NOT LIKE ''
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 GROUP BY 
 line_item_usage_account_id, 
-line_item_resource_id,
-product_instance_type, 
-product_operating_system, 
+{resource_group}
+{product_instance_type_condition}, 
+{product_operating_system_condition}, 
 line_item_availability_zone, 
-product_tenancy, 
-product_region 
+{product_tenancy_condition}, 
+{product_region_condition} 
 {l_SQL_tag_groupby} 
 ) 
 SELECT 
@@ -455,62 +476,6 @@ FROM
 ec2_usage 
 WHERE 
 current_cost > 0"""
-        else:
-            l_SQL = f"""WITH ec2_usage AS ( 
-SELECT 
-line_item_usage_account_id as account_id, 
-product_instance_type as instance_type, 
-product_operating_system AS os, 
-line_item_availability_zone AS az, 
-product_tenancy as tenancy, 
-product_region as region, 
-SUM(line_item_unblended_cost) as current_cost, 
-SUM(CASE 
-WHEN line_item_line_item_type = 'SavingsPlanCoveredUsage' THEN savings_plan_savings_plan_effective_cost 
-WHEN line_item_line_item_type = 'DiscountedUsage' THEN reservation_effective_cost 
-ELSE line_item_unblended_cost 
-END) AS amortized_cost, 
-SUM(line_item_usage_amount) as usage_amount 
-{l_SQL_tag_groupby} 
-FROM 
-{fqdb_name} 
-WHERE 
-{account_id} 
-line_item_product_code = 'AmazonEC2' 
-AND line_item_usage_type LIKE '%BoxUsage%' 
-AND line_item_line_item_type IN ('Usage', 'DiscountedUsage', 'SavingsPlanCoveredUsage') 
-AND product_instance_type NOT LIKE '%.metal' 
-AND product_instance_type NOT LIKE 'a1.%' 
-AND product_instance_type NOT LIKE '%g.%' 
-AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY 
-line_item_usage_account_id, 
-product_instance_type, 
-product_operating_system, 
-line_item_availability_zone, 
-product_tenancy, 
-product_region 
-{l_SQL_tag_groupby} 
-) 
-SELECT 
-account_id as Account_ID, 
-instance_type as Instance_Type, 
-os AS OS_type, 
-az AS AZ, 
-tenancy as Tenancy, 
-region as Region, 
-CAST(current_cost as decimal(16,2)) as Current_Cost, 
-CAST(amortized_cost as decimal(16,2)) as Amortized_Cost, 
-CAST(0 as decimal(16,2)) as USage_Amount 
-{l_SQL_tag_groupby} 
-FROM 
-ec2_usage 
-WHERE 
-current_cost > 0"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

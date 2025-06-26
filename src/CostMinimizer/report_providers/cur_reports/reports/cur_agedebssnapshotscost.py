@@ -233,25 +233,35 @@ class CurAgedebssnapshotscost(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for aged EBS snapshots cost
-        # line_item_usage_start_date BETWEEN DATE_ADD('month', -1, max_date) AND max_date
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR        
+        if (current_cur_version == 'v2.0'):
+            product_location_condition = "product['location']"
+        else:
+            product_location_condition = "product_location"
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            select_fields = f"DISTINCT line_item_resource_id,\n{product_location_condition} as region,"
+            group_by_fields = "GROUP BY 1, 2"
+        else:
+            select_fields = f"'Unknown Resource' as line_item_resource_id,\n{product_location_condition} as region,"
+            group_by_fields = "GROUP BY 2"
+
         l_SQL = f"""SELECT 
-DISTINCT line_item_resource_id, 
-product_location as region,
+{select_fields}
 SUM(line_item_usage_amount) as usage, 
 SUM(line_item_unblended_cost) as cost 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_line_item_type = 'Usage' 
 AND line_item_usage_type LIKE '%EBS:SnapshotUsage' 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY 1, 2;"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
+{group_by_fields};"""
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

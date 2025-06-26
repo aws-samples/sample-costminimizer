@@ -44,7 +44,7 @@ class ErrorInConfigureCowInsertDB(Exception):
     pass
 
 class Config(Singleton):
-    
+
     '''
     note: 
 
@@ -68,6 +68,7 @@ class Config(Singleton):
         cls.installation_type = cls.__set_installation_type()
         cls.platform = cls._setup_platform()
         cls.default_selected_region = 'us-east-1' #TODO this should come from parameters
+        cls.default_selected_regions = 'us-east-1' #TODO this should come from parameters
         cls.internals_file = cls.app_path / 'conf' / __TOOL_CONF_INTERNALS__
         cls.internals, cls.origin_internals_values = cls.__load_cow_config(config_file=cls.internals_file)
         cls.report_directory, cls.report_output_directory = cls.__set_report_directory(cls.installation_type)
@@ -686,6 +687,14 @@ internals:
 
         return [r for r in regions if r not in excludedRegions]
             
+    def get_client(cls, client_name:str, region_name:str=None):
+        '''return boto client '''
+        if region_name: 
+            return cls.auth_manager.aws_cow_account_boto_session.client(client_name, region_name)
+        else:
+            return cls.auth_manager.aws_cow_account_boto_session.client(client_name, 'us-east-1')
+
+    
     def get_cache_settings(cls) -> dict:
         '''return cache settings from database'''
         # TODO: Implement cache settings retrieval from database
@@ -711,12 +720,3 @@ internals:
         self.logger.info(message)
         print(message)
         sys.exit(0)
-
-    # class CowConfigWrapper:
-    #     # For backward compatibility with code expecting a CowConfig instance  
-    #     def __init__(self, cm_config_instance):
-    #         self.appConfig = cm_config_instance
-            
-    # def get_cow_config_wrapper(cls):
-    #     """Returns a CowConfig-compatible wrapper around this instance"""
-    #     return cls.CowConfigWrapper(cls)

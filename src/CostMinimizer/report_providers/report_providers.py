@@ -79,6 +79,8 @@ class ReportProviderBase(ABC):
 
         self.writer = None
 
+        self.enrollment_status = True
+
     def name(self):
         '''return name of report provider''' 
         pass
@@ -151,12 +153,19 @@ class ReportProviderBase(ABC):
 
             cache_status = 'report_object.get_caching_status()'
 
-            
             '''get params from db, store in app, send to method'''
             params = self.appConfig.database.get_report_parameters(report_object.common_name())
 
             if params != []:
                 report_object.set_report_parameters(params)
+
+            if report_object.precondition_report() and additional_input_data != 'preconditioned':
+                self.logger.info(f'removing {self.name()} preconditioning report: {report_name}')
+                self.get_approved_reports().remove(report_object.name())
+                additional_input_data = None
+                continue
+            elif report_object.precondition_report() and additional_input_data == 'preconditioned':
+                additional_input_data = None
 
             # if forced disabled
             if report_object.disable_report():
@@ -169,7 +178,8 @@ class ReportProviderBase(ABC):
             self.logger.info(f'Running report {report_name}')
 
             self.run_additional_logic_for_provider(report_object, additional_input_data)
-            
+            self.accounts, self.regions, self.customer = self.set_report_request_for_run()
+
             self.logger.info(f'{report_name}: Requested in {self.appConfig.cow_execution_type} mode.')
             self.logger.info(f'{report_name}: Running against account #{self.accounts} and region {self.regions}.')
             
@@ -353,9 +363,16 @@ class ReportProviderBase(ABC):
             # retreive account number from boto3 sts current session
             account = self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts').get_caller_identity()['Account']
 
-            region = self.appConfig.selected_regions
+            # Set default region if selected_regions is None
+            if hasattr(self.appConfig, 'selected_regions') and self.appConfig.selected_regions:
+                region = self.appConfig.selected_regions
+            else:
+                # Use default region from config
+                region = self.appConfig.default_selected_region if hasattr(self.appConfig, 'default_selected_region') else 'us-east-1'
+                # Set the selected_regions attribute to avoid None issues later
+                self.appConfig.selected_regions = [region]
         except Exception as e:
-            msg = f'Error: credentials expired.  Get new credentials before starting the program.'
+            msg = f'Error: unable to retreive STS information. Check your credentials.  Get new credentials before starting the program.'
             self.logger.exception(msg)
             self.appConfig.console.print(f'\n[red underline]{msg}')
             sys.exit(0)
@@ -854,6 +871,24 @@ class ReportBase(ABC):
 
         return True or False
         '''
+
+    def precondition_report(self) -> bool:
+        '''
+        Set to true if this report is meant to run as a precondition report only
+
+        return True or False
+
+        Default set to False
+        '''
+
+        return False
+
+    def require_user_provided_region(self) -> bool:
+        '''
+        Certain reports such as trusted advisor typically run in us-east-1
+        other reports require regions to be selected by the user
+        '''
+        return False
 
     def calculate_savings(self):
         '''do the work to calculate the savings'''

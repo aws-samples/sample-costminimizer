@@ -192,12 +192,30 @@ class CurDdbiaopt(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for DynamoDB IA optimization
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        if (current_cur_version == 'v2.0'):
+            line_item_product_code_condition = "product['product_name'] = 'Amazon DynamoDB'"
+        else:
+            line_item_product_code_condition = "line_item_product_code = 'AmazonDynamoDB'"
+        
+        # Base SQL with conditional resource_id handling
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id"
+            resource_group = "line_item_resource_id,"
+            resource_where = """AND line_item_resource_id LIKE '%dynamodb%' 
+AND line_item_resource_id NOT LIKE '%backup%'"""
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id"
+            resource_group = ""
+            resource_where = ""
 
         l_SQL= f"""SELECT 
 line_item_usage_account_id, 
-line_item_resource_id, 
+{resource_select}, 
 _verdict, 
 _actual_throughput_cost, 
 _actual_storage_cost, 
@@ -219,7 +237,7 @@ WHEN _verdict LIKE '%IA' THEN (
 END 
 ) AS _potential_monthly_savings 
 FROM ( 
-SELECT line_item_usage_account_id,line_item_resource_id, 
+SELECT line_item_usage_account_id,{resource_select}, 
 ( 
 CASE 
 WHEN _uses_reservations = 0 
@@ -233,7 +251,7 @@ line_item_usage_start_date,
 line_item_usage_end_date, 
 _uses_reservations 
 FROM ( 
-SELECT line_item_resource_id,line_item_usage_account_id, 
+SELECT {resource_select},line_item_usage_account_id, 
 MAX( 
 CASE 
 WHEN "pricing_term" = 'Reserved' 
@@ -255,14 +273,13 @@ END
 MIN(line_item_usage_start_date) AS line_item_usage_start_date, 
 MAX(line_item_usage_end_date) AS line_item_usage_end_date 
 FROM 
-{fqdb_name} 
+{self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_product_code = 'AmazonDynamoDB' 
-AND line_item_resource_id LIKE '%dynamodb%' 
-AND line_item_resource_id NOT LIKE '%backup%' 
+{line_item_product_code_condition} 
+{resource_where}
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY line_item_resource_id,line_item_usage_account_id 
+GROUP BY {resource_group}line_item_usage_account_id 
 ) 
 ) 
 where _verdict = 'Candidate for Standard_IA' and round(date_diff('month', line_item_usage_start_date, line_item_usage_end_date)) >0 

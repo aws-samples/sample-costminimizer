@@ -167,7 +167,7 @@ class CurDynamodblegacyglobaltablescost(CurBase):
         
         for global_table in result.get('globalTables', []):
             data_dict = {
-                'accountId': account,
+                'line_item_usage_account_id': account,
                 'region': region,
                 'global_table_name': global_table.get('globalTableName', '')
             }
@@ -270,7 +270,7 @@ class CurDynamodblegacyglobaltablescost(CurBase):
 
     def get_required_columns(self) -> list:
         return [
-                    'accountId',
+                    'line_item_usage_account_id',
                     'region',
                     'global_table_name',
                     'sum_usage_amount',
@@ -282,25 +282,42 @@ class CurDynamodblegacyglobaltablescost(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for legacy DynamoDB global tables cost
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "SPLIT_PART(line_item_resource_id, 'table/', 2) AS global_table_name"
+            resource_group = "SPLIT_PART(line_item_resource_id, 'table/', 2)"
+        else:
+            resource_select = "'Unknown Table' AS global_table_name"
+            resource_group = "'Unknown Table'"
+
+        if (current_cur_version == 'v2.0'):
+            product_region_str_condition = "product['region']"
+            line_item_product_code_condition = "product['product_name'] = 'Amazon DynamoDB'"
+        else:
+            product_region_str_condition = "product_region"
+            line_item_product_code_condition = "line_item_product_code = 'AmazonDynamoDB'"
 
         l_SQL = f"""SELECT 
 line_item_usage_account_id, 
-product_region,
-SPLIT_PART(line_item_resource_id, 'table/', 2) AS global_table_name, 
+{product_region_str_condition},
+{resource_select}, 
 SUM(CAST(line_item_usage_amount AS DOUBLE)) AS sum_line_item_usage_amount, 
 SUM(CAST(line_item_blended_cost AS DECIMAL(16, 8))*.3) AS estimated_savings 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-AND line_item_product_code = 'AmazonDynamoDB' 
+AND {line_item_product_code_condition} 
 and line_item_usage_type like '%ReadCapacityUnit%' 
 GROUP BY 
 line_item_usage_account_id, 
-product_region,
-SPLIT_PART(line_item_resource_id, 'table/', 2)"""
+{product_region_str_condition},
+{resource_group}"""
 
         # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
         # for each unique combination of account, resource, and usage type. This gives us the

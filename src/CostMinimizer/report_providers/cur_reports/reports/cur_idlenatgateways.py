@@ -240,20 +240,38 @@ class CurIdlenatgateways(CurBase):
 
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            select_fields = "line_item_resource_id,"
+            where_clause = "AND line_item_resource_id LIKE '%:natgateway/nat-%'"
+            group_by_fields = "GROUP BY 1,2,3"
+        else:
+            select_fields = "'Unknown Resource' as line_item_resource_id,"
+            where_clause = ""
+            group_by_fields = "GROUP BY 1,2,3"
+
+        if (current_cur_version == 'v2.0'):
+            product_from_location_condition = "product['from_location']"
+        else:
+            product_from_location_condition = "product_from_location"
+        
         l_SQL = f"""SELECT 
-line_item_resource_id, 
+{select_fields}
 line_item_usage_type, 
-product_from_location,
+{product_from_location_condition},
 SUM(line_item_usage_amount) as USAGE, 
 SUM(line_item_unblended_cost) as COST 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_line_item_type = 'Usage' 
-AND line_item_resource_id LIKE '%:natgateway/nat-%' 
+{where_clause}
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
-GROUP BY 1,2,3"""
+{group_by_fields}"""
 
         #strip newlines 
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')

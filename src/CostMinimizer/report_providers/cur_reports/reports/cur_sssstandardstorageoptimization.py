@@ -185,14 +185,23 @@ class CurSssstandardstorageoptimization(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for S3 standard storage optimization
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id"
+            resource_group = "line_item_resource_id"
+        else:
+            resource_select = "'Unknown Resource Id'"
+            resource_group = "'Unknown Resource Id'"
 
         l_SQL= f"""WITH get_spend as ( 
 SELECT 
-line_item_resource_id as get_resource_id, 
+{resource_select} as get_resource_id, 
 SUM(CAST(line_item_unblended_cost AS decimal(16,8))) AS get_spend 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -200,13 +209,13 @@ AND line_item_product_code = 'AmazonS3'
 AND product_product_family != 'Data Transfer' 
 AND line_item_operation in ('GetObject') 
 GROUP BY 
-line_item_resource_id 
+{resource_group}
 ), 
 put_spend as ( 
 SELECT 
-line_item_resource_id as put_resource_id, 
+{resource_select} as put_resource_id, 
 SUM(CAST(line_item_unblended_cost AS decimal(16,8))) AS put_spend 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -214,14 +223,14 @@ AND line_item_product_code = 'AmazonS3'
 AND product_product_family != 'Data Transfer' 
 AND line_item_operation in ('PutObject') 
 GROUP BY 
-line_item_resource_id 
+{resource_group}
 ), 
 storage_spend as ( 
 SELECT 
 line_item_usage_account_id as account_id, 
-line_item_resource_id as storage_resource_id, 
+{resource_select} as storage_resource_id, 
 SUM(CAST(line_item_unblended_cost AS decimal(16,8))) AS standard_storage_spend 
-FROM {fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
 line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
@@ -230,7 +239,7 @@ AND product_product_family != 'Data Transfer'
 AND line_item_operation = 'StandardStorage' 
 GROUP BY 
 line_item_usage_account_id, 
-line_item_resource_id 
+{resource_group}
 ) 
 select  
 account_id, 

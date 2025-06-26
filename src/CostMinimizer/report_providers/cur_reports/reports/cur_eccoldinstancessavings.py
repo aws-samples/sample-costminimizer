@@ -192,43 +192,61 @@ class CurEccoldinstancessavings(CurBase):
     def get_expected_column_headers(self) -> list:
         return self.get_required_columns()
 
-    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str):
-        # This method needs to be implemented with the specific SQL query for EC2 old instances upgrade savings
+    def sql(self, fqdb_name: str, payer_id: str, account_id: str, region: str, max_date: str, current_cur_version: str, resource_id_column_exists: str):
+        # generation of CUR has 2 types, legacy old and new v2.0 using dataexport.
+        # The structure of Athena depends of the type of CUR
+        # Also, Use may or may not include resource_if into the Athena CUR 
+        
+        # Adjust SQL based on column existence
+        if resource_id_column_exists:
+            resource_select = "line_item_resource_id"
+            resource_group = "line_item_resource_id,"
+        else:
+            resource_select = "'Unknown Resource' as line_item_resource_id"
+            resource_group = ""
+
+        if (current_cur_version == 'v2.0'):
+            product_tenancy_field = "product['tenancy']"
+            product_region_field = "product['region_code']"
+            product_instance_type_field = "product['instance_type_family']"
+            product_generation_field = "product['current_generation']"
+            line_item_product_code_condition = "product['product_name']='Amazon Elastic Compute Cloud'"
+        else:
+            product_tenancy_field = "product_tenancy"
+            product_region_field = "product_region_code"
+            product_instance_type_field = "product_instance_type_family"
+            product_generation_field = "product_current_generation"
+            line_item_product_code_condition = "line_item_product_code='AmazonEC2'"
 
         l_SQL= f"""select line_item_usage_account_id, 
-product_instance_type_family, 
-product_tenancy, 
-product_region_code, 
-product_current_generation, 
+{product_instance_type_field}, 
+{product_tenancy_field} as product_tenancy, 
+{product_region_field}, 
+{product_generation_field}, 
 line_item_operation, 
-line_item_resource_id, 
+{resource_select}, 
 split_part(line_item_usage_type,':',2) instance_type, 
 line_item_unblended_rate, 
 sum(line_item_usage_amount) hours 
-FROM 
-{fqdb_name} 
+FROM {self.cur_db}.{self.cur_table} 
 WHERE 
 {account_id} 
-line_item_product_code='AmazonEC2' 
+{line_item_product_code_condition} 
 AND line_item_operation like 'RunInstances%' 
-AND product_tenancy <>'' 
+AND {product_tenancy_field} <>'' 
 AND (line_item_line_item_type = 'Usage' 
 OR line_item_line_item_type = 'SavingsPlanCoveredUsage' 
 ) 
 AND line_item_usage_start_date BETWEEN DATE_ADD('month', -1, DATE('{max_date}')) AND DATE('{max_date}') 
 group by line_item_usage_account_id, 
-product_instance_type_family, 
-product_tenancy, 
-product_region_code, 
-product_current_generation, 
+{product_instance_type_field}, 
+{product_tenancy_field}, 
+{product_region_field}, 
+{product_generation_field}, 
 line_item_operation, 
-line_item_resource_id, 
+{resource_group}
 split_part(line_item_usage_type,':',2) , 
 line_item_unblended_rate"""
-
-        # Note: We use SUM(line_item_unblended_cost) to get the total cost across all usage records
-        # for each unique combination of account, resource, and usage type. This gives us the
-        # overall cost impact of inter-AZ traffic for each resource.
 
         # Remove newlines for better compatibility with some SQL engines
         l_SQL2 = l_SQL.replace('\n', '').replace('\t', ' ')
