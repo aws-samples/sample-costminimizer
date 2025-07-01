@@ -178,9 +178,9 @@ class CurDocumentdbidlecost(CurBase):
         self.error = {}
         self.logger.info(f'processing check data')
         
-        #make sure dante response was successful
+        #make sure Internal response was successful
         if result['danteCallStatus'] == 'SUCCESSFUL':  
-            self.logger.info(f'dante call successful')
+            self.logger.info(f'Internal call successful')
             metric_data_query_list=[]
             
             cluster_lists = self.make_lists(result['dBClusters'], 50)
@@ -225,7 +225,7 @@ class CurDocumentdbidlecost(CurBase):
                             if seven_day_total == 0:
                                 data_list.append(data_dict)
         else:
-            msg = f'ERROR: Dante call not successful for account: {account} region: {region}'
+            msg = f'ERROR: Internal call not successful for account: {account} region: {region}'
             self.logger.info(msg)
             self.error[account] = msg
 

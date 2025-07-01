@@ -34,12 +34,12 @@ class AuthenticationError(Exception):
 
 
 class CurError(Exception):
-    def __init__(self, e, message='Error accessing Bubblewand CUR') -> None:
+    def __init__(self, e, message='Error accessing Account CUR') -> None:
         self.message=message
         self.e = e
 
         if 'Table not found customer_cur_data.customer_all' in e.args[0]:
-            self.message = 'Table `customer_all` not found in Bubblewand. Does the customer have CUR enabled?'
+            self.message = 'Table `customer_all` not found in Account. Does the customer have CUR enabled?'
         super().__init__(self.message)
 
 class UnableToDiscoverCustomerLinkedAccounts(Exception):
@@ -50,7 +50,7 @@ class UnableToDiscoverCustomerLinkedAccounts(Exception):
         self.message = 'Customer Discovery CUR report failed.'
         self.appConfig.alerts['aws_cow_profile'] = self.message
 
-class UnableToGetTagsFromBubbleWand(Exception):
+class UnableToGetTagsFromAccount(Exception):
     def __init__(self, e, appConfig, message="Customer Discovery Exception"):
         self.message = message
         self.e = e

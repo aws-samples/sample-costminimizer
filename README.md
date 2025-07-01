@@ -59,7 +59,7 @@ Warning: before launching the installation, AWS credentials have to be defined i
   AWS_SESSION_TOKEN
 
 Just execute this bash Q CLI command:
-q chat "can you install the tool CosMinimizer that is availble in the repository git@ssh.gitlab.aws.dev:costminimizer/CostMinimizer.git. Clone this repository into ~/CostMinimizer, create the folder in case it does not exists. Then follow the intallation and configuration instructions contained in  ~/CostMinimizer/README.md to proceed to the installation and configuration of the tool,
+q chat "can you install the tool CosMinimizer that is availble in the repository git@github.com:aws-samples/sample-costminimizer.git. Clone this repository into ~/CostMinimizer, create the folder in case it does not exists. Then follow the intallation and configuration instructions contained in  ~/CostMinimizer/README.md to proceed to the installation and configuration of the tool,
 following instructions written in the section called Option 2) Bash 'command instructions, Manual option'."
 
 Option 2) Bash command instructions, Manual option

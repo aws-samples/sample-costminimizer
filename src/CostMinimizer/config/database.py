@@ -23,10 +23,10 @@ from ..config.database_updates import DatabaseUpdate
 class UnableToUpdateSQLValue(Exception):
     pass
 
-class InvalidBubblewandAccountNumber(Exception):
+class InvalidAccountNumber(Exception):
     pass
 
-class UnableToDetermineBubblewandEmail(Exception):
+class UnableToDetermineAccountEmail(Exception):
     pass
 
 class UnableToExecuteSqliteQuery(Exception):
@@ -185,7 +185,7 @@ class ToolingDatabase:
 
         return retVal
 
-    def sanitize_customer_record(self, record, bubblewand_account = ""):
+    def sanitize_customer_record(self, record, my_account = ""):
         def recordExistsAndNotNull(field):
             if field in record.keys() and len(record[field].strip()) > 0:
                 record[field] = record[field].strip().replace(" ", "_")
@@ -193,7 +193,7 @@ class ToolingDatabase:
             else:
                 return False
 
-        #customer record (bubblewand) specifics defined in cow_internals.yaml
+        #customer record (aws account) specifics defined in cow_internals.yaml
         cow_internals_customer_discovery = self.appConfig.internals['internals']['cur_customer_discovery']
 
         if not recordExistsAndNotNull('cx_name'):
@@ -209,7 +209,7 @@ class ToolingDatabase:
             record['secrets_aws_profile'] = cow_internals_customer_discovery['secrets_aws_profile'].replace('{dummy_value}', record['cx_name'])
 
         if not recordExistsAndNotNull('athena_s3_buckt'):
-            record['athena_s3_buckt'] = cow_internals_customer_discovery['aws_cow_s3_bucket'].replace('{dummy_value}', bubblewand_account)
+            record['athena_s3_buckt'] = cow_internals_customer_discovery['aws_cow_s3_bucket'].replace('{dummy_value}', my_account)
 
         if not recordExistsAndNotNull('cur_db_name'):
             record['cur_db_name'] = cow_internals_customer_discovery['db_name']
@@ -309,8 +309,8 @@ class ToolingDatabase:
             customer_payer_account = customer_payer_account.zfill(12)
 
         if len(customer_payer_account) != 12:
-            msg = f'Your bubblewand account number {customer_payer_account} must be 12 digits.'
-            raise InvalidBubblewandAccountNumber(msg)
+            msg = f'Your account number {customer_payer_account} must be 12 digits.'
+            raise InvalidAccountNumber(msg)
 
         try:
             record = {

@@ -26,7 +26,7 @@ setup(
     author='CostMinimizer Tooling Team',
     maintainer_email='slepetre@amazon.com',
     author_email='aws-co-tooling-core@amazon.com',
-    url='https://gitlab.aws.dev/CostMinimizer/CostMinimizer',
+    url='https://github.com/aws-samples/sample-costminimizer.git',
     package_dir= { '': 'src/'},
     packages=discovered_packages,
     python_requires='>=3.8',

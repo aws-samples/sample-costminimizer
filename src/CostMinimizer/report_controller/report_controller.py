@@ -176,7 +176,7 @@ class CowReportController(CowReportControllerBase):
         self.report_providers = self.import_reports()
         
         '''
-        #INTERNAL: run CUR from bubblewand to collect schema colummns for user defined-tags.
+        # Run CUR from Account to collect schema colummns for user defined-tags.
         Switching this to K2 and doing some reverse-engineering of the Athena key renaming.
 
         '''
@@ -191,7 +191,7 @@ class CowReportController(CowReportControllerBase):
         self.report_providers = self.import_reports()
         
         '''
-        #INTERNAL: run CUR from bubblewand to collect schema colummns for user defined-tags.
+        # Run CUR from Account to collect schema colummns for user defined-tags.
 
         '''
                 

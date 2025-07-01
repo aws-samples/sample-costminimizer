@@ -1000,7 +1000,7 @@ class ReportBase(ABC):
         return True
     
     def set_tag_dependencies(self) -> None:
-        '''Override to set a dependency report in a Dante script when tags are being used. 
+        '''Override to set a dependency report in a Internal script when tags are being used. 
         Examples below on how to specify using tags and set a dependency report in your k2 or cur report definition
         
         self.using_tags = True
