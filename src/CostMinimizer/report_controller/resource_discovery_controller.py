@@ -91,29 +91,19 @@ class ResourceDiscoveryController:
 
     def run(self, report_controller):
         '''
-        TODO currently only CUR is supported as a precondition report.  Eventually
-        we will want to support all providers
+        Run resource discovery. CUR is optional - will only run if CUR is in providers.
         '''
         
         providers = report_controller.get_report_providers()
         
         if 'cur_reports' in providers:
-            cur_provider = report_controller.import_provider('cur_reports')(self.appConfig)
-
-        self.appConfig.console.print('[green]Running Cost & Usage Report: Resource Discovery (Precondition) Reports')
-
-        cur_provider.setup()
-        
-        self.cur_type = self.determine_cur_report_type(cur_provider)
-        
-        self.precondition_reports_in_progress = cur_provider.run(additional_input_data = 'preconditioned')
-
-
-    
-
-
-
-
-    
-
-    
+            try:
+                cur_provider = report_controller.import_provider('cur_reports')(self.appConfig)
+                self.appConfig.console.print('[green]Running Cost & Usage Report: Resource Discovery (Precondition) Reports')
+                cur_provider.setup()
+                self.cur_type = self.determine_cur_report_type(cur_provider)
+                self.precondition_reports_in_progress = cur_provider.run(additional_input_data = 'preconditioned')
+            except Exception as e:
+                self.logger.warning(f'Skipping CUR processing due to error: {str(e)}')
+                self.appConfig.console.print('[yellow]Skipping CUR processing due to error - continuing with other providers')
+                self.precondition_reports_in_progress = {'cur_preconditionavginstancecost.cur': False}

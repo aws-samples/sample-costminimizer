@@ -60,14 +60,23 @@ class AccountDiscoveryController:
             self.accounts_metadata.append(account_record)
     
     def determine_is_payer_account(self) -> bool:
-        org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
-        # Check if the account is a master/management account
-        account_details = org_client.describe_organization()
+        try:
+            org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
+            # Check if the account is a master/management account
+            account_details = org_client.describe_organization()
 
-        # A payer account is typically the management account in AWS Organizations
-        is_payer = account_details['Organization']['MasterAccountId'] == self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts').get_caller_identity()['Account']
+            # A payer account is typically the management account in AWS Organizations
+            is_payer = account_details['Organization']['MasterAccountId'] == self.appConfig.auth_manager.aws_cow_account_boto_session.client('sts').get_caller_identity()['Account']
 
-        return is_payer
+            return is_payer
+        except Exception as e:
+            if 'AWSOrganizationsNotInUseException' in str(e):
+                # If the account is not part of an organization, treat it as a standalone account
+                self.appConfig.logger.info("Account is not part of an AWS Organization - treating as standalone account")
+                return False
+            else:
+                # Re-raise any other exceptions
+                raise
     
     def get_account_id(self, session=None) -> str:
         '''get account id'''
@@ -80,25 +89,41 @@ class AccountDiscoveryController:
         return account_id
     
     def get_number_linked_accounts(self) -> int:
-        org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
-        # List accounts in the organization
-        response = org_client.list_accounts()
-
         try:
-            return len(response['Accounts'])
-        except:
-            return 0
+            org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
+            # List accounts in the organization
+            response = org_client.list_accounts()
+
+            try:
+                return len(response['Accounts'])
+            except:
+                return 0
+        except Exception as e:
+            if 'AWSOrganizationsNotInUseException' in str(e):
+                # If the account is not part of an organization, there are no linked accounts
+                return 0
+            else:
+                # Re-raise any other exceptions
+                raise
         
     def get_linked_accounts(self) -> list:
         '''get linked accounts from organizations'''
-        org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
-        # List accounts in the organization
-        response = org_client.list_accounts()
-
         try:
-            return response['Accounts']
-        except:
-            raise UnableToDiscoverCustomerLinkedAccounts(Exception, self.appConfig, 'Unable to discover linked accounts')
+            org_client = self.appConfig.auth_manager.aws_cow_account_boto_session.client('organizations')
+            # List accounts in the organization
+            response = org_client.list_accounts()
+
+            try:
+                return response['Accounts']
+            except:
+                raise UnableToDiscoverCustomerLinkedAccounts(Exception, self.appConfig, 'Unable to discover linked accounts')
+        except Exception as e:
+            if 'AWSOrganizationsNotInUseException' in str(e):
+                # If the account is not part of an organization, return an empty list
+                return []
+            else:
+                # Re-raise any other exceptions
+                raise
          
     def get_support_status_of_account(self, session=None) -> list:
         '''get support status of linked accounts'''

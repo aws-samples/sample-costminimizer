@@ -406,7 +406,7 @@ class ToolingDatabase:
             "cur_db"	varchar(99) DEFAULT '',
             "cur_table"	varchar(99) DEFAULT '',
             "cur_region"	varchar(30) DEFAULT '',
-            "aws_cow_s3_bucket"	varchar(100) DEFAULT '',
+            "aws_cow_s3_bucket"	varchar(100) DEFAULT 'costminimizercurtesting',
             "ses_send"	varchar(100) DEFAULT '',
             "ses_from"	varchar(100) DEFAULT '',
             "ses_region"	varchar(20) DEFAULT '',
@@ -422,7 +422,7 @@ class ToolingDatabase:
             "last_month_only"	varchar(20) DEFAULT 'FALSE',
             "aws_access_key_id"	varchar(50),
             "aws_secret_access_key"	varchar(50),
-            "cur_s3_bucket"	varchar(255) DEFAULT 's3://???/MyStandardExport',
+            "cur_s3_bucket"	varchar(255) DEFAULT 's3://costminimizercurtesting',
             PRIMARY KEY("config_id" AUTOINCREMENT)
         )'''
 

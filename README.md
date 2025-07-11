@@ -93,7 +93,7 @@ For information, the configuration has the following parameters :
 |             cur_db             |      athenacurcfn_my_report1       | The CUR Database name, for the CUR checks/requests (like 'customer_cur_data')|
 |           cur_table            |             myreport1              | The CUR Table name, for the CUR checks/requests|
 |           cur_region           |             us-east-1              | The CUR region,for the CUR checks/requests|
-|         cur_s3_bucket          |   s3://bucket-sam-cur-us-east-1/   | The S3 bucket name where the results are saved (like 's3://bucket-sam-cur-1/') (required with --cur option)|
+|         cur_s3_bucket          |   s3://costminimizercurtesting/   | The S3 bucket name where the results are saved (like 's3://costminimizercurtesting/') (required with --cur option)|
 |            ses_send            |                                    | The SES 'DESTINATION' email address, CostMinimizer results are sent to this email|
 |            ses_from            |        slepetre@amazon.com         | the SES 'SENDER' origin email address, CostMinimizer results are sent using this origin email (optional)|
 |           ses_region           |             eu-west-1              | The SES region where the Simple Email Server is running|

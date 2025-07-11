@@ -598,10 +598,10 @@ class ConfigureToolingCommand:
                 l_value = self.get_s3_primary_workgroup_settings_athena()
                 if (l_value):
                     default_value = l_value
-            config['cur_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR S3 bucket{GREEN}, for the CUR checks/requests (like s3://bucket-sam-cur-1/')'{RESET}", default_value)
+            config['cur_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR S3 bucket{GREEN}, for the CUR checks/requests (like s3://costminimizercurtesting/')'{RESET}", default_value)
 
             default_value = self.appConfig.config['aws_cow_s3_bucket']
-            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like bucket-sam-results-costminimizer/') (optional){RESET}", default_value)
+            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like costminimizercurtesting/') (optional){RESET}", default_value)
 
             self.update_cow_configuration_record(config)
         else:
