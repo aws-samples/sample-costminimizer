@@ -169,9 +169,11 @@ class CeBase(ReportBase, ABC):
                 rows.append(row)  
                     
             df = pd.DataFrame(rows)
-            df.set_index("date", inplace= True)
-            df = df.fillna(0.0)
-            df = df.T
+            # check if df is not empty
+            if not df.empty:
+                df.set_index("date", inplace= True)
+                df = df.fillna(0.0)
+                df = df.T
         elif Name in ['RIUtilization','RIUtilizationSavings']:
             #Only Six month to support savings
             results = []
