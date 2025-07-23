@@ -150,6 +150,10 @@ class Config(Singleton):
         log_config = cls.internals['internals']['logging']
         log_file_path = cls.report_directory / log_config['log_file']
 
+        # check if cls.report_directory exists as a directory, otherwize create the folder
+        if not cls.report_directory.is_dir():
+            cls.report_directory.mkdir(parents=True, exist_ok=True)
+
         cls._cleanup_log_file(log_file_path)
         logging.basicConfig(
             filename=log_file_path.resolve(),
