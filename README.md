@@ -275,6 +275,12 @@ To run all the boto3 calls in the CostMinimizer application, you'll need the fol
       "Action": [
         "support:DescribeTrustedAdvisorChecks",
         "support:DescribeTrustedAdvisorCheckResult",
+        "support:DescribeTrustedAdvisorCheckSummaries",
+        "support:RefreshTrustedAdvisorCheck",
+        "support:DescribeCases",
+        "support:DescribeSeverityLevels",
+        "support:DescribeCommunications",
+        "support:DescribeServices",
         "ce:GetCostAndUsage",
         "ce:GetReservationCoverage",
         "ce:GetReservationUtilization",
@@ -290,7 +296,12 @@ To run all the boto3 calls in the CostMinimizer application, you'll need the fol
         "sts:GetCallerIdentity",
         "sts:GetSessionToken",
         "bedrock:Converse",
-        "bedrock:InvokeModel"
+        "bedrock:InvokeModel",
+        "organizations:List*",
+        "organizations:Describe*",
+        "ec2:Describe*",
+        "ec2:List*",
+        "compute-optimizer:Get*"
       ],
       "Resource": "*"
     },
