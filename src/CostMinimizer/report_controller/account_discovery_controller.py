@@ -70,7 +70,7 @@ class AccountDiscoveryController:
 
             return is_payer
         except Exception as e:
-            if 'AWSOrganizationsNotInUseException' in str(e):
+            if 'AWSOrganizationsNotInUseException' in str(e) or 'AccessDeniedException' in str(e):
                 # If the account is not part of an organization, treat it as a standalone account
                 self.appConfig.logger.info("Account is not part of an AWS Organization - treating as standalone account")
                 return False
