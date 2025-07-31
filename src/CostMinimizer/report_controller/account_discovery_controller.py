@@ -162,6 +162,8 @@ class AccountDiscoveryController:
                 # If we can't access the Support API, it's likely Basic Support
                 if 'SubscriptionRequiredException' in str(e):
                     return 'Basic'
+                elif 'AccessDeniedException' in str(e):
+                    return 'Basic'
                 else:
                     raise e
         
