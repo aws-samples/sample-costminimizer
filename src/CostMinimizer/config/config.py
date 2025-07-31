@@ -104,6 +104,10 @@ class Config(Singleton):
     
     def prompt_for_automated_configuration(cls) -> None:
         '''prompt user for automated configuration'''
+        # Check if --auto-update-conf parameter is set
+        if hasattr(cls, 'arguments_parsed') and hasattr(cls.arguments_parsed, 'auto_update_conf') and cls.arguments_parsed.auto_update_conf:
+            return True
+            
         cls.console.print(f'[blue]Tool configuration is not finished.  This appears to be a new installation. [/blue]')
         cls.console.print(f'[blue]Would you like me to attempt an automatic configuartion based on your authentication variables?[/blue]')
         answer = input('Enter [y/n]: ')
