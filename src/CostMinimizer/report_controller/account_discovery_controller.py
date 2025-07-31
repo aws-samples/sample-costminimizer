@@ -70,7 +70,7 @@ class AccountDiscoveryController:
 
             return is_payer
         except Exception as e:
-            if 'AWSOrganizationsNotInUseException' in str(e):
+            if 'AWSOrganizationsNotInUseException' in str(e) or 'AccessDeniedException' in str(e):
                 # If the account is not part of an organization, treat it as a standalone account
                 self.appConfig.logger.info("Account is not part of an AWS Organization - treating as standalone account")
                 return False
@@ -161,6 +161,8 @@ class AccountDiscoveryController:
             except Exception as e:
                 # If we can't access the Support API, it's likely Basic Support
                 if 'SubscriptionRequiredException' in str(e):
+                    return 'Basic'
+                elif 'AccessDeniedException' in str(e):
                     return 'Basic'
                 else:
                     raise e

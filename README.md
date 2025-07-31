@@ -79,7 +79,7 @@ cd ~/CostMinimizer && source .venv/bin/activate && pip install -r requirements.t
 cd ~/CostMinimizer && source .venv/bin/activate && python setup.py develop
 
 # 2.5 Configure the tool
-cd ~/CostMinimizer && source .venv/bin/activate && CostMinimizer --configure
+cd ~/CostMinimizer && source .venv/bin/activate && CostMinimizer --configure --auto-update-conf
 
 # 2.6 Last step, check the current configuration of the tool
 cd ~/CostMinimizer && source .venv/bin/activate && CostMinimizer --configure --ls-conf
@@ -297,8 +297,7 @@ To run all the boto3 calls in the CostMinimizer application, you'll need the fol
         "sts:GetSessionToken",
         "bedrock:Converse",
         "bedrock:InvokeModel",
-        "organizations:List*",
-        "organizations:Describe*",
+        "organizations:DescribeOrganization",
         "ec2:Describe*",
         "ec2:List*",
         "compute-optimizer:Get*"
