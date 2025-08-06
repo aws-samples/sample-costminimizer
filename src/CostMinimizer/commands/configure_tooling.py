@@ -373,7 +373,13 @@ class ConfigureToolingCommand:
             response = athena_client.get_work_group(WorkGroup='primary')
 
             # Extract the S3 output location from the response
-            s3_output_location = response['WorkGroup']['Configuration']['ResultConfiguration']['OutputLocation']
+            workgroup_config = response.get('WorkGroup', {}).get('Configuration', {})
+            result_config = workgroup_config.get('ResultConfiguration', {})
+            s3_output_location = result_config.get('OutputLocation', '')
+            
+            if not s3_output_location:
+                self.logger.warning('No OutputLocation configured in Athena primary workgroup')
+
         except Exception as e:
             self.logger.exception('An error occurred during execution', e, stack_info=True, exc_info=True)
             raise e
@@ -471,6 +477,8 @@ class ConfigureToolingCommand:
                 title = 'Select SES origin email address:'
                 subtitle = 'subtitle'
                 terminal_menu = launch_terminal_menu(ses_origin_email_addresses, title=title, subtitle=subtitle, multi_select=True, show_multi_select_hint=True, show_search_hint=True, exit_when_finished=True)
+            else:
+                terminal_menu = None
         except Exception as e:
             raise e
 
@@ -592,16 +600,24 @@ class ConfigureToolingCommand:
             default_value = self.appConfig.config['last_month_only']
             config['last_month_only'] = click.prompt(f"{GREEN}Enter the {YELLOW}last month only{GREEN}, Specify true if you wish to generate for only last month{RESET}", default_value)
 
-            default_value = self.appConfig.config['cur_s3_bucket']
+            l_default_cur_s3_bucket = self.appConfig.config['cur_s3_bucket']
+            # test if l_default_cur_s3_bucket contains ___PAYER_ACCOUNT___ then replace ___PAYER_ACCOUNT___ by aws sts caller identity account
+            if '___PAYER_ACCOUNT___' in l_default_cur_s3_bucket:
+                l_default_cur_s3_bucket = l_default_cur_s3_bucket.replace('___PAYER_ACCOUNT___', self.appConfig.auth_manager.aws_cow_account_boto_session.client("sts").get_caller_identity()["Account"])
+            default_value = l_default_cur_s3_bucket
             if default_value is not None or '???' in default_value:
                 # read the value of 
                 l_value = self.get_s3_primary_workgroup_settings_athena()
                 if (l_value):
                     default_value = l_value
-            config['cur_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR S3 bucket{GREEN}, for the CUR checks/requests (like s3://costminimizercurtesting/')'{RESET}", default_value)
+            config['cur_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}CUR S3 bucket{GREEN}, for the CUR checks/requests (like s3://costminimizer-labs-athena-results-123456789012-us-east-1/')'{RESET}", default_value)
 
-            default_value = self.appConfig.config['aws_cow_s3_bucket']
-            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like costminimizercurtesting/') (optional){RESET}", default_value)
+            l_default_aws_cow_s3_bucket = self.appConfig.config['aws_cow_s3_bucket']
+            # test if l_default_aws_cow_s3_bucket contains ___PAYER_ACCOUNT___ then replace ___PAYER_ACCOUNT___ by aws sts caller identity account
+            if '___PAYER_ACCOUNT___' in l_default_aws_cow_s3_bucket:
+                l_default_aws_cow_s3_bucket = l_default_aws_cow_s3_bucket.replace('___PAYER_ACCOUNT___', self.appConfig.auth_manager.aws_cow_account_boto_session.client("sts").get_caller_identity()["Account"])
+            default_value = l_default_aws_cow_s3_bucket
+            config['aws_cow_s3_bucket'] = click.prompt(f"{GREEN}Enter the {YELLOW}S3 bucket name where the results are saved{GREEN} (like costminimizer-labs-athena-results-123456789012-us-east-1/') (optional){RESET}", default_value)
 
             self.update_cow_configuration_record(config)
         else:

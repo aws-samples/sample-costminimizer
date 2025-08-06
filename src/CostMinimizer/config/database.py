@@ -53,7 +53,6 @@ class ToolingDatabase:
         
         #make database cursor
         self.con = self.get_connection()
-#        self.cursor = self.make_cursor()
 
         #creates database and tables if not exists
         self.create_tables()
@@ -395,7 +394,10 @@ class ToolingDatabase:
         cursor.close()
 
     def cowconfiguration_table(self):
-        sql = '''CREATE TABLE IF NOT EXISTS "cow_configuration" (
+        p_region = self.appConfig.default_selected_region
+
+        default_s3 = f"costminimizer-labs-athena-results-___PAYER_ACCOUNT___-{p_region}"
+        sql = f'''CREATE TABLE IF NOT EXISTS "cow_configuration" (
             "config_id"	INTEGER,
             "aws_cow_account"	TEXT,
             "aws_cow_profile"	TEXT UNIQUE,
@@ -406,7 +408,7 @@ class ToolingDatabase:
             "cur_db"	varchar(99) DEFAULT '',
             "cur_table"	varchar(99) DEFAULT '',
             "cur_region"	varchar(30) DEFAULT '',
-            "aws_cow_s3_bucket"	varchar(100) DEFAULT 'costminimizercurtesting',
+            "aws_cow_s3_bucket"	varchar(100) DEFAULT '{default_s3}',
             "ses_send"	varchar(100) DEFAULT '',
             "ses_from"	varchar(100) DEFAULT '',
             "ses_region"	varchar(20) DEFAULT '',
@@ -422,7 +424,7 @@ class ToolingDatabase:
             "last_month_only"	varchar(20) DEFAULT 'FALSE',
             "aws_access_key_id"	varchar(50),
             "aws_secret_access_key"	varchar(50),
-            "cur_s3_bucket"	varchar(255) DEFAULT 's3://costminimizercurtesting',
+            "cur_s3_bucket"	varchar(255) DEFAULT 's3://{default_s3}',
             PRIMARY KEY("config_id" AUTOINCREMENT)
         )'''
 
