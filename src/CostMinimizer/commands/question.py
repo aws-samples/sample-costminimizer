@@ -137,7 +137,7 @@ class Question(QuestionBase):
                 self.display_answer(answer)
                 self.save_to_file(answer)
             else:
-                self.appConfig.console.print(f"[yellow]Resend question: \"{self.question}\" \[y/n]? :")
+                self.appConfig.console.print(f"[yellow]Resend question: '{self.question}' [y/n]? :")
                 resend = input()
                 if resend.lower() == 'y':
                     self.appConfig.console.print(f"Resending: \"{self.question}\" ")
