@@ -293,8 +293,9 @@ class ReportOutputPptxHandler(ReportOutputPptxHandlerBase):
         # For each services_data, run the gen_ai_client to get a recommendation
         for service_data in self.services_data:
             df = pd.DataFrame.from_dict(service_data['Data'], orient='columns')
-            if self.services_data is not None:
-                gen_ai_data_list = gen_ai_client.execute( self.get_gen_ai_prompt('service_trends'), df, 'csv', True, 'dataframe')
+            if self.services_data is not None and len(self.services_data) > 0:
+                l_prompt = gen_ai_client.get_gen_ai_prompt('service_trends')
+                gen_ai_data_list = gen_ai_client.execute( l_prompt, df, 'csv', False, 'dataframe')
                 self.trend_spend_by_service.append(gen_ai_data_list)
             else:
                 gen_ai_data_list = None
@@ -306,7 +307,8 @@ class ReportOutputPptxHandler(ReportOutputPptxHandlerBase):
         self.appConfig.console.print(msg)
 
         report_file = self.report_directory / self.appConfig.report_file_name
-        gen_ai_data_list =  gen_ai_client.execute( gen_ai_client.get_gen_ai_prompt('recommendations'), report_file, 'xlsx', False, 'file')
+        l_prompt = gen_ai_client.get_gen_ai_prompt('recommendations')
+        gen_ai_data_list =  gen_ai_client.execute( l_prompt, report_file, 'xlsx', False, 'file')
         
         return gen_ai_data_list
 
@@ -871,9 +873,9 @@ f"- average spend over the last 6 months : ${round(mean_sum_last_6_months)}",
         try:
             self.genai_recommendations_slide( self.analyzed_recommendations)
         except:
-            msg='ERROR : Unable to create genai recommendations slide'
+            msg='Warning : unable to create genai recommendations slide based on Bedrock answer !'
             self.logger.info(msg)
-            self.appConfig.console.print('[red]'+msg)
+            self.appConfig.console.print(msg)
 
         try:
             self.save_presentation( report_directory)

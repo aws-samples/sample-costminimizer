@@ -11,7 +11,9 @@ import sys
 import re
 import ast
 import backoff
+import pandas as pd
 
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from botocore.config import Config as BConfig
 from abc import abstractmethod
@@ -46,6 +48,9 @@ class Bedrock(ProviderBase):
         self.model_id = self.appConfig.internals.get('internals', {}).get('genAI', {}).get('default_genai_model', 'us.anthropic.claude-3-5-sonnet-20241022-v2:0') 
         self.max_tokens = self.appConfig.internals.get('internals', {}).get('genAI', {}).get('max_tokens', 4096)
         self.temperature = self.appConfig.internals.get('internals', {}).get('genAI', {}).get('temperature', 0.7)
+        
+        # Define domain list for AI prompts
+        self.domain_list = ' Technical domains include: COMPUTE, DATABASE, STORAGE, NETWORK, ML, MIGRATION_TRANSFER, MANAGEMENT_GOVERNANCE, ANALYTICS, APPLICATION_INTEGRATION.'
 
     def _set_client_config(self):
         """
@@ -218,7 +223,7 @@ class Bedrock(ProviderBase):
     def execute(self, question, input_file, type_of_file, encrypted = False, data_source='memory'):
 
         # self.appConfig, input_text = question, file_binary = base64_file, file_format = type_of_file
-        if input_file:
+        if isinstance(input_file, pd.core.frame.DataFrame) or isinstance(input_file, Path):
             # Convert input files to base64
             if data_source == 'file':
                 base64_file = self._convert_file_to_base64(str(input_file))
